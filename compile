@@ -127,14 +127,16 @@ else
     CLANG="${THEOS}/toolchain/linux/iphone/bin/clang"
     LIPO="${THEOS}/toolchain/linux/iphone/bin/lipo"
     SDK_IOS7="${THEOS}/sdks/iPhoneOS10.3.sdk"
+    SDK_ARM64E="${THEOS}/sdks/iPhoneOS14.5.sdk"
+    if [ ! -d "$SDK_ARM64E" ]; then
+        SDK_ARM64E="$SDK_IOS7"
+    fi
+    cp -r "$SDK_IOS7" "./_sdk_arm64"
+    SDK_ARM64="./_sdk_arm64"
     if [ -d "${THEOS}/sdks/iPhoneOS9.3.sdk" ]; then
         cp "${THEOS}/sdks/iPhoneOS9.3.sdk/usr/lib/system/libunwind.tbd" "$SDK_IOS7/usr/lib/system/libunwind.tbd"
         cp "${THEOS}/sdks/iPhoneOS9.3.sdk/usr/lib/system/libcompiler_rt.tbd" "$SDK_IOS7/usr/lib/system/libcompiler_rt.tbd"
         cp "${THEOS}/sdks/iPhoneOS9.3.sdk/usr/lib/libobjc.A.tbd" "$SDK_IOS7/usr/lib/libobjc.A.tbd"
-    fi
-    SDK_ARM64E="${THEOS}/sdks/iPhoneOS14.5.sdk"
-    if [ ! -d "$SDK_ARM64E" ]; then
-        SDK_ARM64E="$SDK_IOS7"
     fi
 
     # Prepare app bundle resources
@@ -233,10 +235,11 @@ else
 
     build_arch "armv7"  "7.0"  "$SDK_IOS7"
     build_arch "armv7s" "7.0"  "$SDK_IOS7"
-    build_arch "arm64"  "7.0"  "$SDK_IOS7"
+    build_arch "arm64"  "7.0"  "$SDK_ARM64"
     if [ -d "$THEOS/sdks/iPhoneOS14.5.sdk" ]; then
         build_arch "arm64e" "11.0" "$SDK_ARM64E"
     fi
+    rm -rf "$SDK_ARM64"
 
     "$LIPO" -create "${APP_SLICES[@]}" -output ./SuccessionRestore.app/SuccessionRestore
     "$LIPO" -create "${ROOT_SLICES[@]}" -output ./SuccessionRestore.app/succdatroot
