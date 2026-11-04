@@ -34,8 +34,12 @@ jobs:
           echo "$THEOS/toolchain/linux/iphone/bin" >> $GITHUB_PATH
           curl -sL https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma | tar --lzma -xf - --strip-components=1 -C "$THEOS/toolchain/linux/iphone"
           curl -sL https://github.com/theos/sdks/archive/refs/heads/master.tar.gz | tar -xzf - --strip-components=1 -C "$THEOS/sdks"
-          ls -la "$THEOS/toolchain/linux/iphone/bin"
-          ls -la "$THEOS/sdks"
+          # Ensure libtinfo.so.5 compatibility for sbingner clang toolchain on Ubuntu 24.04+
+          if [ ! -e /usr/lib/x86_64-linux-gnu/libtinfo.so.5 ] && [ -e /usr/lib/x86_64-linux-gnu/libtinfo.so.6 ]; then
+            sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+          fi
+          ldd "$THEOS/toolchain/linux/iphone/bin/clang"
+          "$THEOS/toolchain/linux/iphone/bin/clang" --version
 
       - name: Compile SuccessionRestore and package .deb
         run: |
