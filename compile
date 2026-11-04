@@ -127,7 +127,7 @@ else
     CLANG="${THEOS}/toolchain/linux/iphone/bin/clang"
     LIPO="${THEOS}/toolchain/linux/iphone/bin/lipo"
     SDK_IOS7="${THEOS}/sdks/iPhoneOS10.3.sdk"
-    SDK_ARM64E="${THEOS}/sdks/iPhoneOS14.5.sdk"
+    SDK_ARM64E="${THEOS}/sdks/iPhoneOS13.7.sdk"
     if [ ! -d "$SDK_ARM64E" ]; then
         SDK_ARM64E="$SDK_IOS7"
     fi
@@ -236,7 +236,7 @@ else
     build_arch "armv7"  "7.0"  "$SDK_IOS7"
     build_arch "armv7s" "7.0"  "$SDK_IOS7"
     build_arch "arm64"  "7.0"  "$SDK_ARM64"
-    if [ -d "$THEOS/sdks/iPhoneOS14.5.sdk" ]; then
+    if [ -d "$THEOS/sdks/iPhoneOS13.7.sdk" ]; then
         build_arch "arm64e" "11.0" "$SDK_ARM64E"
     fi
     rm -rf "$SDK_ARM64"
