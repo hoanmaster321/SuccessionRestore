@@ -126,7 +126,10 @@ else
     export PATH="${THEOS}/toolchain/linux/iphone/bin:${PATH}"
     CLANG="${THEOS}/toolchain/linux/iphone/bin/clang"
     LIPO="${THEOS}/toolchain/linux/iphone/bin/lipo"
-    SDK_IOS7="${THEOS}/sdks/iPhoneOS10.3.sdk"
+    SDK_IOS7="${THEOS}/sdks/iPhoneOS9.3.sdk"
+    if [ ! -f "$SDK_IOS7/usr/lib/system/liblaunch.tbd" ] && [ -f "${THEOS}/sdks/iPhoneOS10.3.sdk/usr/lib/system/liblaunch.tbd" ]; then
+        cp "${THEOS}/sdks/iPhoneOS10.3.sdk/usr/lib/system/liblaunch.tbd" "$SDK_IOS7/usr/lib/system/liblaunch.tbd"
+    fi
     SDK_ARM64E="${THEOS}/sdks/iPhoneOS14.5.sdk"
     if [ ! -d "$SDK_ARM64E" ]; then
         SDK_ARM64E="$SDK_IOS7"
