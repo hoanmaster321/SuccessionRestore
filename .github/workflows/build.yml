@@ -28,12 +28,13 @@ jobs:
           sudo chmod +x /usr/local/bin/ldid
           # Install Theos Linux iOS Clang Toolchain & Legacy SDKs (iPhoneOS9.3.sdk + iPhoneOS14.5.sdk)
           export THEOS=/opt/theos
-          sudo mkdir -p "$THEOS/toolchain" "$THEOS/sdks"
+          sudo mkdir -p "$THEOS/toolchain/linux/iphone" "$THEOS/sdks"
           sudo chown -R "$USER:$USER" "$THEOS"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
-          curl -sL https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma | tar --lzma -xf - -C "$THEOS"
+          echo "$THEOS/toolchain/linux/iphone/bin" >> $GITHUB_PATH
+          curl -sL https://github.com/sbingner/llvm-project/releases/download/v10.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma | tar --lzma -xf - --strip-components=1 -C "$THEOS/toolchain/linux/iphone"
           curl -sL https://github.com/theos/sdks/archive/refs/heads/master.tar.gz | tar -xzf - --strip-components=1 -C "$THEOS/sdks"
-          find "$THEOS/toolchain" -maxdepth 4 -name "clang"
+          ls -la "$THEOS/toolchain/linux/iphone/bin"
           ls -la "$THEOS/sdks"
 
       - name: Compile SuccessionRestore and package .deb
@@ -48,9 +49,8 @@ jobs:
           dpkg-deb -c com.samgisaninja.successionrestore.deb
           mkdir -p /tmp/verify_deb
           dpkg-deb -x com.samgisaninja.successionrestore.deb /tmp/verify_deb
-          LIPO_BIN=$(find "$THEOS/toolchain" -name "*lipo" -type f | head -n 1)
-          "$LIPO_BIN" -info /tmp/verify_deb/Applications/SuccessionRestore.app/SuccessionRestore
-          "$LIPO_BIN" -info /tmp/verify_deb/Applications/SuccessionRestore.app/succdatroot
+          "$THEOS/toolchain/linux/iphone/bin/lipo" -info /tmp/verify_deb/Applications/SuccessionRestore.app/SuccessionRestore
+          "$THEOS/toolchain/linux/iphone/bin/lipo" -info /tmp/verify_deb/Applications/SuccessionRestore.app/succdatroot
           ldid -e /tmp/verify_deb/Applications/SuccessionRestore.app/SuccessionRestore
 
       - name: Upload .deb Artifact

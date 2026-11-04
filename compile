@@ -123,8 +123,9 @@ else
     # Builds 4-slice universal binary: armv7 + armv7s + arm64 (iOS 7.0+) + arm64e
     # =========================================================================
     echo "COMPILING iOS 7.0+ UNIVERSAL TARGET ON LINUX (armv7 + armv7s + arm64 + arm64e)..."
-    CLANG=$(find "${THEOS}/toolchain" -name "clang" -type f | head -n 1)
-    LIPO=$(find "${THEOS}/toolchain" -name "*lipo" -type f | head -n 1)
+    export PATH="${THEOS}/toolchain/linux/iphone/bin:${PATH}"
+    CLANG="${THEOS}/toolchain/linux/iphone/bin/clang"
+    LIPO="${THEOS}/toolchain/linux/iphone/bin/lipo"
     SDK_IOS7="${THEOS}/sdks/iPhoneOS9.3.sdk"
     SDK_ARM64E="${THEOS}/sdks/iPhoneOS14.5.sdk"
     if [ ! -d "$SDK_ARM64E" ]; then
@@ -141,9 +142,8 @@ else
 
     cp ./SuccessionRestore/attach ./SuccessionRestore.app/attach
     cp ./SuccessionRestore/hdik ./SuccessionRestore.app/hdik
-    cp ./LICENSE.md ./SuccessionRestore.app/LICENSE.md
-    cp ./README.md ./SuccessionRestore.app/README.md
-    cp ./SuccessionRestore/Zebra.md ./SuccessionRestore.app/Zebra.md
+    [ -f ./README.md ] && cp ./README.md ./SuccessionRestore.app/README.md || true
+    [ -f ./SuccessionRestore/Zebra.md ] && cp ./SuccessionRestore/Zebra.md ./SuccessionRestore.app/Zebra.md || true
 
     flatten_storyboards
 
