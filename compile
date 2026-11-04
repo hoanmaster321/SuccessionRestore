@@ -3,82 +3,239 @@ set -e
 
 rm -rf ./build ./Build ./Index ./SuccessionRestore.app ./com.samgisaninja.SuccessionRestore
 
-# Detect if linker supports -ld_classic (Xcode 15+ requires -ld_classic to emit LC_VERSION_MIN_IPHONEOS for iOS 7.0)
-EXTRA_LDFLAGS=""
-if xcrun ld -ld_classic -v >/dev/null 2>&1; then
-    EXTRA_LDFLAGS="-Wl,-ld_classic"
-fi
+flatten_storyboards() {
+    python3 -c '
+import os, shutil, plistlib
 
-# Detect legacy SDK (e.g. iPhoneOS10.3.sdk or iPhoneOS9.3.sdk from $THEOS/sdks) for iOS 7.0 symbol/runtime compatibility
-LEGACY_SDK=""
-if [ -n "$THEOS" ] && [ -d "$THEOS/sdks" ]; then
-    for sdk in "$THEOS"/sdks/iPhoneOS10*.sdk "$THEOS"/sdks/iPhoneOS9*.sdk "$THEOS"/sdks/iPhoneOS11*.sdk; do
-        if [ -d "$sdk" ]; then
-            LEGACY_SDK="$sdk"
-            break
-        fi
-    done
-fi
+app = "./SuccessionRestore.app"
+base = os.path.join(app, "Base.lproj")
+for extra in ["Main~iphone.storyboardc", "Main~ipad.storyboardc"]:
+    p = os.path.join(base, extra)
+    if os.path.exists(p):
+        shutil.rmtree(p)
 
-echo "COMPILING iOS 7.0+ TARGET..."
-if xcodebuild -target SuccessionRestore -xcconfig compile32.xcconfig -configuration Debug \
-    CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-    OTHER_LDFLAGS="\$(inherited) $EXTRA_LDFLAGS" >/dev/null 2>&1; then
-    echo "Built armv7 + armv7s + arm64 with compile32.xcconfig"
-else
-    echo "Xcode does not support 32-bit XCBuild target directly; building arm64 (iOS 7.0+ target)..."
-    if [ -n "$LEGACY_SDK" ]; then
-        xcodebuild -target SuccessionRestore -xcconfig compile32.xcconfig -configuration Debug \
-            ARCHS="arm64" VALID_ARCHS="arm64" ONLY_ACTIVE_ARCH=NO \
-            IPHONEOS_DEPLOYMENT_TARGET=7.0 \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            OTHER_CFLAGS="\$(inherited) -isysroot $LEGACY_SDK" \
-            OTHER_LDFLAGS="\$(inherited) $EXTRA_LDFLAGS -Wl,-syslibroot,$LEGACY_SDK"
-    else
-        xcodebuild -target SuccessionRestore -xcconfig compile32.xcconfig -configuration Debug \
-            ARCHS="arm64" VALID_ARCHS="arm64" ONLY_ACTIVE_ARCH=NO \
-            IPHONEOS_DEPLOYMENT_TARGET=7.0 \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            OTHER_LDFLAGS="\$(inherited) $EXTRA_LDFLAGS"
+for sb in ["Main.storyboardc", "LaunchScreen.storyboardc"]:
+    sbp = os.path.join(base, sb)
+    if not os.path.isdir(sbp):
+        continue
+    for entry in os.listdir(sbp):
+        ep = os.path.join(sbp, entry)
+        if entry.endswith(".nib") and os.path.isdir(ep):
+            rt = os.path.join(ep, "runtime.nib")
+            if os.path.isfile(rt):
+                with open(rt, "rb") as f:
+                    data = f.read()
+                shutil.rmtree(ep)
+                with open(ep, "wb") as f:
+                    f.write(data)
+        if entry.endswith(".nib") and os.path.isfile(ep):
+            with open(ep, "rb") as f:
+                data = f.read()
+            if b"UIStoryboardShowSegueTemplate" in data:
+                data = data.replace(b"UIStoryboardShowSegueTemplate", b"UIStoryboardPushSegueTemplate")
+                with open(ep, "wb") as f:
+                    f.write(data)
+
+info_path = os.path.join(app, "Info.plist")
+if os.path.isfile(info_path):
+    with open(info_path, "rb") as f:
+        info = plistlib.load(f)
+    info["MinimumOSVersion"] = "7.0"
+    info["CFBundleShortVersionString"] = "1.4.16~b4"
+    info["CFBundleVersion"] = "1"
+    info["UIRequiredDeviceCapabilities"] = ["armv7"]
+    with open(info_path, "wb") as f:
+        plistlib.dump(info, f)
+'
+}
+
+if command -v xcodebuild >/dev/null 2>&1; then
+    # =========================================================================
+    # macOS Build Path (Xcode + clang + lipo)
+    # =========================================================================
+    EXTRA_LDFLAGS=""
+    if xcrun ld -ld_classic -v >/dev/null 2>&1; then
+        EXTRA_LDFLAGS="-Wl,-ld_classic"
     fi
-fi
 
-mv ./build/Debug-iphoneos/SuccessionRestore.app ./SuccessionRestore.app
-mv ./SuccessionRestore.app/SuccessionRestore ./SuccessionRestore.app/SuccessionRestore_ios7
-rm -rf ./build ./Build ./Index
+    LEGACY_SDK=""
+    if [ -n "$THEOS" ] && [ -d "$THEOS/sdks" ]; then
+        for sdk in "$THEOS"/sdks/iPhoneOS10*.sdk "$THEOS"/sdks/iPhoneOS9*.sdk "$THEOS"/sdks/iPhoneOS11*.sdk; do
+            if [ -d "$sdk" ]; then
+                LEGACY_SDK="$sdk"
+                break
+            fi
+        done
+    fi
 
-# Force MinimumOSVersion to 7.0 in Info.plist so iOS 7 SpringBoard/installd accepts the app bundle
-/usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 7.0" ./SuccessionRestore.app/Info.plist || true
+    echo "COMPILING iOS 7.0+ TARGET (macOS)..."
+    if xcodebuild -target SuccessionRestore -xcconfig compile32.xcconfig -configuration Debug \
+        CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+        OTHER_LDFLAGS="\$(inherited) $EXTRA_LDFLAGS" >/dev/null 2>&1; then
+        echo "Built armv7 + armv7s + arm64 with compile32.xcconfig"
+    else
+        echo "Building arm64 (iOS 7.0+ target)..."
+        if [ -n "$LEGACY_SDK" ]; then
+            xcodebuild -target SuccessionRestore -xcconfig compile32.xcconfig -configuration Debug \
+                ARCHS="arm64" VALID_ARCHS="arm64" ONLY_ACTIVE_ARCH=NO \
+                IPHONEOS_DEPLOYMENT_TARGET=7.0 \
+                CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+                OTHER_CFLAGS="\$(inherited) -isysroot $LEGACY_SDK" \
+                OTHER_LDFLAGS="\$(inherited) $EXTRA_LDFLAGS -Wl,-syslibroot,$LEGACY_SDK"
+        else
+            xcodebuild -target SuccessionRestore -xcconfig compile32.xcconfig -configuration Debug \
+                ARCHS="arm64" VALID_ARCHS="arm64" ONLY_ACTIVE_ARCH=NO \
+                IPHONEOS_DEPLOYMENT_TARGET=7.0 \
+                CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+                OTHER_LDFLAGS="\$(inherited) $EXTRA_LDFLAGS"
+        fi
+    fi
 
-echo "COMPILING ARM64E (iOS 11.0+ TARGET)..."
-xcodebuild -target SuccessionRestore -xcconfig compile64.xcconfig -configuration Debug \
-    ARCHS="arm64e" VALID_ARCHS="arm64 arm64e" ONLY_ACTIVE_ARCH=NO \
-    CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
-mv ./build/Debug-iphoneos/SuccessionRestore.app/SuccessionRestore ./SuccessionRestore.app/SuccessionRestore_arm64e
-rm -rf ./build ./Build ./Index
+    mv ./build/Debug-iphoneos/SuccessionRestore.app ./SuccessionRestore.app
+    mv ./SuccessionRestore.app/SuccessionRestore ./SuccessionRestore.app/SuccessionRestore_ios7
+    rm -rf ./build ./Build ./Index
 
-lipo ./SuccessionRestore.app/SuccessionRestore_ios7 ./SuccessionRestore.app/SuccessionRestore_arm64e \
-    -create -output ./SuccessionRestore.app/SuccessionRestore
-rm -f ./SuccessionRestore.app/SuccessionRestore_ios7 ./SuccessionRestore.app/SuccessionRestore_arm64e
+    echo "COMPILING ARM64E (iOS 11.0+ TARGET)..."
+    xcodebuild -target SuccessionRestore -xcconfig compile64.xcconfig -configuration Debug \
+        ARCHS="arm64e" VALID_ARCHS="arm64 arm64e" ONLY_ACTIVE_ARCH=NO \
+        CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+    mv ./build/Debug-iphoneos/SuccessionRestore.app/SuccessionRestore ./SuccessionRestore.app/SuccessionRestore_arm64e
+    rm -rf ./build ./Build ./Index
 
-echo "COMPILING SUCCDATROOT..."
-if [ -n "$THEOS" ] && cd ./succdatroot/ && make && cd .. && [ -f ./succdatroot/.theos/obj/debug/succdatroot ]; then
-    cp ./succdatroot/.theos/obj/debug/succdatroot ./SuccessionRestore.app/succdatroot
-else
-    cd "$(dirname "$0")"
+    lipo ./SuccessionRestore.app/SuccessionRestore_ios7 ./SuccessionRestore.app/SuccessionRestore_arm64e \
+        -create -output ./SuccessionRestore.app/SuccessionRestore
+    rm -f ./SuccessionRestore.app/SuccessionRestore_ios7 ./SuccessionRestore.app/SuccessionRestore_arm64e
+
+    flatten_storyboards
+
+    echo "COMPILING SUCCDATROOT..."
     IOS_SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
     ARM64_SDK="${LEGACY_SDK:-$IOS_SDK_PATH}"
     xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=7.0 -isysroot "$ARM64_SDK" $EXTRA_LDFLAGS \
         ./succdatroot/main.c -o ./succdatroot_arm64
     xcrun -sdk iphoneos clang -arch arm64e -miphoneos-version-min=11.0 -isysroot "$IOS_SDK_PATH" \
         ./succdatroot/main.c -o ./succdatroot_arm64e
-    if [ -n "$LEGACY_SDK" ] && xcrun -sdk iphoneos clang -target armv7-apple-ios7.0 -isysroot "$LEGACY_SDK" $EXTRA_LDFLAGS -nodefaultlibs -lSystem ./succdatroot/main.c -o ./succdatroot_armv7 2>/dev/null; then
-        lipo -create ./succdatroot_armv7 ./succdatroot_arm64 ./succdatroot_arm64e -output ./SuccessionRestore.app/succdatroot
-        rm -f ./succdatroot_armv7
-    else
-        lipo -create ./succdatroot_arm64 ./succdatroot_arm64e -output ./SuccessionRestore.app/succdatroot
-    fi
+    lipo -create ./succdatroot_arm64 ./succdatroot_arm64e -output ./SuccessionRestore.app/succdatroot
     rm -f ./succdatroot_arm64 ./succdatroot_arm64e
+else
+    # =========================================================================
+    # Linux Cross-Compile Build Path (Theos Clang + iPhoneOS9.3.sdk / 14.5.sdk)
+    # Builds 4-slice universal binary: armv7 + armv7s + arm64 (iOS 7.0+) + arm64e
+    # =========================================================================
+    echo "COMPILING iOS 7.0+ UNIVERSAL TARGET ON LINUX (armv7 + armv7s + arm64 + arm64e)..."
+    CLANG="${THEOS}/toolchain/linux/iphone/bin/clang"
+    LIPO="${THEOS}/toolchain/linux/iphone/bin/lipo"
+    SDK_IOS7="${THEOS}/sdks/iPhoneOS9.3.sdk"
+    SDK_ARM64E="${THEOS}/sdks/iPhoneOS14.5.sdk"
+    if [ ! -d "$SDK_ARM64E" ]; then
+        SDK_ARM64E="$SDK_IOS7"
+    fi
+
+    # Prepare app bundle resources
+    rm -rf ./_base_deb
+    mkdir -p ./_base_deb
+    curl -sL "https://github.com/Samgisaninja/SuccessionRestore/releases/download/1.4.15/com.samgisaninja.successionrestore_1.4.15_iphoneos-arm.deb" -o ./_base_deb/base.deb
+    dpkg-deb -x ./_base_deb/base.deb ./_base_deb/extracted
+    mv ./_base_deb/extracted/Applications/SuccessionRestore.app ./SuccessionRestore.app
+    rm -rf ./_base_deb ./SuccessionRestore.app/_CodeSignature ./SuccessionRestore.app/SuccessionRestore ./SuccessionRestore.app/succdatroot
+
+    cp ./SuccessionRestore/attach ./SuccessionRestore.app/attach
+    cp ./SuccessionRestore/hdik ./SuccessionRestore.app/hdik
+    cp ./LICENSE.md ./SuccessionRestore.app/LICENSE.md
+    cp ./README.md ./SuccessionRestore.app/README.md
+    cp ./SuccessionRestore/Zebra.md ./SuccessionRestore.app/Zebra.md
+
+    flatten_storyboards
+
+    INCLUDES="-ISuccessionRestore -ISuccessionRestore/Objective-Zip/Objective-Zip -ISuccessionRestore/Objective-Zip/MiniZip -ISuccessionRestore/Objective-Zip/ZLib"
+    C_SRCS=(
+        SuccessionRestore/Objective-Zip/ZLib/adler32.c
+        SuccessionRestore/Objective-Zip/ZLib/compress.c
+        SuccessionRestore/Objective-Zip/ZLib/crc32.c
+        SuccessionRestore/Objective-Zip/ZLib/deflate.c
+        SuccessionRestore/Objective-Zip/ZLib/gzclose.c
+        SuccessionRestore/Objective-Zip/ZLib/gzlib.c
+        SuccessionRestore/Objective-Zip/ZLib/gzread.c
+        SuccessionRestore/Objective-Zip/ZLib/gzwrite.c
+        SuccessionRestore/Objective-Zip/ZLib/infback.c
+        SuccessionRestore/Objective-Zip/ZLib/inffast.c
+        SuccessionRestore/Objective-Zip/ZLib/inflate.c
+        SuccessionRestore/Objective-Zip/ZLib/inftrees.c
+        SuccessionRestore/Objective-Zip/ZLib/trees.c
+        SuccessionRestore/Objective-Zip/ZLib/uncompr.c
+        SuccessionRestore/Objective-Zip/ZLib/zutil.c
+        SuccessionRestore/Objective-Zip/MiniZip/crypt.c
+        SuccessionRestore/Objective-Zip/MiniZip/ioapi.c
+        SuccessionRestore/Objective-Zip/MiniZip/unzip.c
+        SuccessionRestore/Objective-Zip/MiniZip/zip.c
+    )
+    OBJC_SRCS=(
+        SuccessionRestore/main.m
+        SuccessionRestore/AppDelegate.m
+        SuccessionRestore/iOS7Compat.m
+        SuccessionRestore/HomePageViewController.m
+        SuccessionRestore/DownloadViewController.m
+        SuccessionRestore/DecryptViewController.m
+        SuccessionRestore/RestoreViewController.m
+        SuccessionRestore/SettingsTableViewController.m
+        SuccessionRestore/SpecialThanksTableViewController.m
+        SuccessionRestore/Objective-Zip/Objective-Zip/NSData+CRC32.m
+        SuccessionRestore/Objective-Zip/Objective-Zip/NSDate+DOSDate.m
+        SuccessionRestore/Objective-Zip/Objective-Zip/OZFileInZipInfo.m
+        SuccessionRestore/Objective-Zip/Objective-Zip/OZZipException.m
+        SuccessionRestore/Objective-Zip/Objective-Zip/OZZipFile.m
+        SuccessionRestore/Objective-Zip/Objective-Zip/OZZipReadStream.m
+        SuccessionRestore/Objective-Zip/Objective-Zip/OZZipWriteStream.m
+    )
+
+    APP_SLICES=()
+    ROOT_SLICES=()
+
+    build_arch() {
+        local ARCH="$1"
+        local MIN_IOS="$2"
+        local SDK="$3"
+        echo "  -> Building slice: $ARCH (min iOS $MIN_IOS, SDK $(basename "$SDK"))..."
+        local OBJDIR="./build_${ARCH}"
+        rm -rf "$OBJDIR"
+        mkdir -p "$OBJDIR"
+
+        for src in "${C_SRCS[@]}"; do
+            local obj="$OBJDIR/$(basename "$src" .c).o"
+            "$CLANG" -target "${ARCH}-apple-ios${MIN_IOS}" -arch "$ARCH" -isysroot "$SDK" \
+                $INCLUDES -O2 -w -c "$src" -o "$obj"
+        done
+
+        for src in "${OBJC_SRCS[@]}"; do
+            local obj="$OBJDIR/$(basename "$src" .m).o"
+            "$CLANG" -target "${ARCH}-apple-ios${MIN_IOS}" -arch "$ARCH" -isysroot "$SDK" \
+                $INCLUDES -fobjc-arc -O2 -w -c "$src" -o "$obj"
+        done
+
+        "$CLANG" -target "${ARCH}-apple-ios${MIN_IOS}" -arch "$ARCH" -isysroot "$SDK" \
+            "$OBJDIR"/*.o \
+            -F./SuccessionRestore -F"$SDK/System/Library/PrivateFrameworks" \
+            -framework Foundation -framework UIKit -framework CoreGraphics -framework SpringBoardServices \
+            -weak_framework WebKit -lz -o "./SuccessionRestore_${ARCH}"
+
+        "$CLANG" -target "${ARCH}-apple-ios${MIN_IOS}" -arch "$ARCH" -isysroot "$SDK" \
+            -O2 -w ./succdatroot/main.c -o "./succdatroot_${ARCH}"
+
+        rm -rf "$OBJDIR"
+        APP_SLICES+=("./SuccessionRestore_${ARCH}")
+        ROOT_SLICES+=("./succdatroot_${ARCH}")
+    }
+
+    build_arch "armv7"  "7.0"  "$SDK_IOS7"
+    build_arch "armv7s" "7.0"  "$SDK_IOS7"
+    build_arch "arm64"  "7.0"  "$SDK_IOS7"
+    if [ -d "$THEOS/sdks/iPhoneOS14.5.sdk" ]; then
+        build_arch "arm64e" "11.0" "$SDK_ARM64E"
+    fi
+
+    "$LIPO" -create "${APP_SLICES[@]}" -output ./SuccessionRestore.app/SuccessionRestore
+    "$LIPO" -create "${ROOT_SLICES[@]}" -output ./SuccessionRestore.app/succdatroot
+    rm -f "${APP_SLICES[@]}" "${ROOT_SLICES[@]}"
 fi
 
 ldid -SSuccessionEntitlements.plist ./SuccessionRestore.app/SuccessionRestore
@@ -99,7 +256,7 @@ fakeroot sh -c '
     chmod 0755 com.samgisaninja.SuccessionRestore/Applications/SuccessionRestore.app/attach
     chmod 0755 com.samgisaninja.SuccessionRestore/Applications/SuccessionRestore.app/hdik
     find com.samgisaninja.SuccessionRestore -type f -name .DS_Store -delete
-    xattr -cr com.samgisaninja.SuccessionRestore || true
+    if command -v xattr >/dev/null 2>&1; then xattr -cr com.samgisaninja.SuccessionRestore || true; fi
     dpkg-deb -Zgzip -b com.samgisaninja.SuccessionRestore com.samgisaninja.successionrestore.deb
 '
 rm -rf ./com.samgisaninja.SuccessionRestore

@@ -13,36 +13,44 @@ permissions:
 
 jobs:
   build-deb:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies (ldid, fakeroot, dpkg)
+      - name: Install build dependencies (ldid, fakeroot, dpkg, Theos Linux iOS Toolchain & SDKs)
         run: |
-          brew install ldid fakeroot dpkg
+          sudo apt-get update
+          sudo apt-get install -y build-essential fakeroot dpkg curl git unzip xz-utils python3
+          # Install ldid
+          sudo curl -sL https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 -o /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
+          # Install Theos Linux iOS Clang Toolchain & Legacy SDKs (iPhoneOS9.3.sdk + iPhoneOS14.5.sdk)
+          export THEOS=/opt/theos
+          sudo mkdir -p "$THEOS/toolchain" "$THEOS/sdks"
+          sudo chown -R "$USER:$USER" "$THEOS"
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          echo "$THEOS/toolchain/linux/iphone/bin" >> $GITHUB_PATH
+          curl -sL https://github.com/sbingner/llvm-project/releases/download/v16.0.0-1/linux-ios-arm64e-clang-toolchain.tar.lzma | tar --lzma -xf - -C "$THEOS/toolchain"
+          curl -sL https://github.com/theos/sdks/archive/refs/heads/master.tar.gz | tar -xzf - --strip-components=1 -C "$THEOS/sdks"
+          ls -la "$THEOS/toolchain/linux/iphone/bin"
+          ls -la "$THEOS/sdks"
 
-      - name: Download iOS 10.3 SDK for iOS 7.0+ compatibility
-        run: |
-          mkdir -p "$HOME/theos/sdks"
-          curl -sL https://github.com/theos/sdks/archive/refs/heads/master.tar.gz | tar -xz -C "$HOME/theos/sdks" --strip-components=1 sdks-master/iPhoneOS10.3.sdk
-          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-
-      - name: Compile SuccessionRestore (.deb)
+      - name: Compile SuccessionRestore and package .deb
         run: |
           chmod +x ./compile
           ./compile
 
-      - name: Verify .deb package and Mach-O headers
+      - name: Verify .deb package & Mach-O slices (armv7, armv7s, arm64, arm64e)
         run: |
           ls -lh com.samgisaninja.successionrestore.deb
           dpkg-deb -I com.samgisaninja.successionrestore.deb
           dpkg-deb -c com.samgisaninja.successionrestore.deb
-          mkdir -p /tmp/verify-deb
-          dpkg-deb -x com.samgisaninja.successionrestore.deb /tmp/verify-deb
-          file /tmp/verify-deb/Applications/SuccessionRestore.app/SuccessionRestore
-          file /tmp/verify-deb/Applications/SuccessionRestore.app/succdatroot
-          otool -arch arm64 -l /tmp/verify-deb/Applications/SuccessionRestore.app/SuccessionRestore | grep -A 4 -E "LC_VERSION_MIN_IPHONEOS|LC_BUILD_VERSION" || true
+          mkdir -p /tmp/verify_deb
+          dpkg-deb -x com.samgisaninja.successionrestore.deb /tmp/verify_deb
+          "$THEOS/toolchain/linux/iphone/bin/lipo" -info /tmp/verify_deb/Applications/SuccessionRestore.app/SuccessionRestore
+          "$THEOS/toolchain/linux/iphone/bin/lipo" -info /tmp/verify_deb/Applications/SuccessionRestore.app/succdatroot
+          ldid -e /tmp/verify_deb/Applications/SuccessionRestore.app/SuccessionRestore
 
       - name: Upload .deb Artifact
         uses: actions/upload-artifact@v4
@@ -51,15 +59,18 @@ jobs:
           path: com.samgisaninja.successionrestore.deb
           if-no-files-found: error
 
-      - name: Publish GitHub Release (on push to master)
+      - name: Publish GitHub Release
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.4.16-ios7
-          name: "Succession 1.4.16 (iOS 7.0 - 14.x Support)"
+          name: "Succession 1.4.16~b4 (iOS 7.0 - 16.x Support)"
           body: |
-            Automated build of **Succession** with **iOS 7 (`7.0` - `7.1.2`)** support (including iPhone 5s `arm64` and 32-bit devices).
-            - Package: `com.samgisaninja.successionrestore.deb`
-            - Required Cydia packages on iOS 7-9: `rsync`, `xpwn`
+            ### Succession Restore (`com.samgisaninja.successionrestore.deb`)
+            - Hỗ trợ đầy đủ **iOS 7.0 – 7.1.2** (cả thiết bị **32-bit `armv7`/`armv7s`** và **64-bit `arm64`** như **iPhone 5s `iPhone6,1` / `iPhone6,2`**, iPad Air, iPad mini 2) cùng các bản iOS 8 – 16 (`arm64e`).
+            - Sửa lỗi dùng `attach` thay vì `hdik` cho các thiết bị 64-bit chạy iOS 7 – 9.
+            - Tương thích giao diện Storyboard & Alert/ActionSheet trên iOS 7.
+            - Tự động lấy RootFS key qua `api.ipsw.me/v4`, `theapplewiki.com`, hoặc file `/var/mobile/Media/Succession/rfs_key.plist`.
           files: com.samgisaninja.successionrestore.deb
-          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

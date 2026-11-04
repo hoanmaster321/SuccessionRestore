@@ -21,6 +21,35 @@ static BOOL SR_NSString_containsString(NSString *self, SEL _cmd, NSString *str) 
     return [self rangeOfString:str].location != NSNotFound;
 }
 
+static void SR_UIViewController_showViewController(UIViewController *self, SEL _cmd, UIViewController *vc, id sender) {
+    if (!vc) return;
+    UINavigationController *nav = self.navigationController;
+    if (!nav && [self isKindOfClass:[UINavigationController class]]) {
+        nav = (UINavigationController *)self;
+    }
+    if (nav) {
+        [nav pushViewController:vc animated:YES];
+    } else {
+        [self presentViewController:vc animated:YES completion:nil];
+    }
+}
+
+static UIStoryboardSegue *SR_ShowSegueTemplate_segueWithDest(id self, SEL _cmd, UIViewController *destVC) {
+    UIViewController *srcVC = [self valueForKey:@"viewController"];
+    NSString *ident = [self valueForKey:@"identifier"];
+    return [UIStoryboardSegue segueWithIdentifier:ident source:srcVC destination:destVC performHandler:^{
+        UINavigationController *nav = srcVC.navigationController;
+        if (!nav && [srcVC isKindOfClass:[UINavigationController class]]) {
+            nav = (UINavigationController *)srcVC;
+        }
+        if (nav) {
+            [nav pushViewController:destVC animated:YES];
+        } else {
+            [srcVC presentViewController:destVC animated:YES completion:nil];
+        }
+    }];
+}
+
 #pragma mark - SRAlertAction
 
 @interface SRAlertAction ()
@@ -82,7 +111,22 @@ static BOOL SR_NSString_containsString(NSString *self, SEL _cmd, NSString *str) 
             class_addMethod([NSString class], @selector(containsString:), (IMP)SR_NSString_containsString, types);
         }
 
-        // 2. Swizzle -[UIViewController presentViewController:animated:completion:] to intercept SRAlertController
+        // 2. Add -[UIViewController showViewController:sender:] & UIStoryboardShowSegueTemplate on iOS 7
+        if (![UIViewController instancesRespondToSelector:@selector(showViewController:sender:)]) {
+            class_addMethod([UIViewController class], @selector(showViewController:sender:), (IMP)SR_UIViewController_showViewController, "v@:@@");
+        }
+        if (objc_getClass("UIStoryboardShowSegueTemplate") == nil) {
+            Class baseSegueTemplate = objc_getClass("UIStoryboardSegueTemplate");
+            if (baseSegueTemplate) {
+                Class showTemplateCls = objc_allocateClassPair(baseSegueTemplate, "UIStoryboardShowSegueTemplate", 0);
+                if (showTemplateCls) {
+                    class_addMethod(showTemplateCls, NSSelectorFromString(@"segueWithDestinationViewController:"), (IMP)SR_ShowSegueTemplate_segueWithDest, "@@:@");
+                    objc_registerClassPair(showTemplateCls);
+                }
+            }
+        }
+
+        // 3. Swizzle -[UIViewController presentViewController:animated:completion:] to intercept SRAlertController
         Class vcClass = [UIViewController class];
         SEL originalSel = @selector(presentViewController:animated:completion:);
         SEL swizzledSel = @selector(sr_presentViewController:animated:completion:);

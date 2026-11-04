@@ -137,7 +137,7 @@
                                 </connections>
                             </button>
                         </subviews>
-                        <color key="backgroundColor" systemColor="systemBackgroundColor" cocoaTouchSystemColor="whiteColor"/>
+                        <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
                         <constraints>
                             <constraint firstItem="ess-Lg-ydl" firstAttribute="leading" secondItem="8bC-Xf-vdC" secondAttribute="leading" constant="15" id="1X1-OL-0Y6"/>
                             <constraint firstItem="S0F-S6-ikK" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="zSR-tn-iUQ" secondAttribute="trailing" constant="8" symbolic="YES" id="4P9-6a-hA5"/>
@@ -309,7 +309,7 @@
                                 <nil key="highlightedColor"/>
                             </label>
                         </subviews>
-                        <color key="backgroundColor" systemColor="systemBackgroundColor" cocoaTouchSystemColor="whiteColor"/>
+                        <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
                         <constraints>
                             <constraint firstItem="2Cc-GK-dNy" firstAttribute="centerX" secondItem="6hq-ns-Vo8" secondAttribute="centerX" id="55y-l5-gkj"/>
                             <constraint firstItem="jUQ-Nk-mJ8" firstAttribute="centerX" secondItem="6hq-ns-Vo8" secondAttribute="centerX" id="88k-XD-2we"/>
@@ -391,7 +391,7 @@
                                 </constraints>
                             </activityIndicatorView>
                         </subviews>
-                        <color key="backgroundColor" systemColor="systemBackgroundColor" cocoaTouchSystemColor="whiteColor"/>
+                        <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
                         <constraints>
                             <constraint firstItem="ZQF-U9-VRO" firstAttribute="top" secondItem="Sf1-MP-lDH" secondAttribute="bottom" constant="25" id="4FU-VF-UfK"/>
                             <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="ZQF-U9-VRO" secondAttribute="trailing" id="7ak-nM-dgs"/>
@@ -446,7 +446,7 @@
                                 <nil key="highlightedColor"/>
                             </label>
                         </subviews>
-                        <color key="backgroundColor" systemColor="systemBackgroundColor" cocoaTouchSystemColor="whiteColor"/>
+                        <color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>
                         <constraints>
                             <constraint firstItem="AI8-Bj-MOW" firstAttribute="leading" secondItem="WsL-W5-iRl" secondAttribute="leading" constant="10" id="aVE-lead-7"/>
                             <constraint firstAttribute="trailing" secondItem="AI8-Bj-MOW" secondAttribute="trailing" constant="10" id="aVE-trail-7"/>
