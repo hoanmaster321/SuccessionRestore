@@ -220,7 +220,7 @@ else
         "$CLANG" -target "${ARCH}-apple-ios${MIN_IOS}" -arch "$ARCH" -isysroot "$SDK" \
             "$OBJDIR"/*.o \
             -F./SuccessionRestore -F"$SDK/System/Library/PrivateFrameworks" \
-            -framework Foundation -framework CFNetwork -framework UIKit -framework CoreGraphics -framework SpringBoardServices \
+            -framework Foundation -framework CFNetwork -framework UIKit -framework CoreGraphics -framework MessageUI -framework SpringBoardServices \
             -weak_framework WebKit -lz -o "./SuccessionRestore_${ARCH}"
 
         "$CLANG" -target "${ARCH}-apple-ios${MIN_IOS}" -arch "$ARCH" -isysroot "$SDK" \
