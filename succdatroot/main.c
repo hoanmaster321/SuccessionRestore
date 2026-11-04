@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include <dlfcn.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sysexits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -25,12 +26,14 @@ void patch_setuidandplatformize() {
   typedef void (*fix_entitle_prt_t)(pid_t pid, uint32_t what);
   fix_entitle_prt_t entitleptr = (fix_entitle_prt_t)dlsym(handle, "jb_oneshot_entitle_now");
 
-  setuidptr(getpid());
+  if (setuidptr) {
+    setuidptr(getpid());
+  }
 
   setuid(0);
 
   const char *dlsym_error = dlerror();
-  if (dlsym_error) {
+  if (dlsym_error || !entitleptr) {
     return;
   }
 
@@ -38,10 +41,16 @@ void patch_setuidandplatformize() {
 }
 
 int main(int argc, char ** argv) {
+  if (argc < 2) {
+    return EX_USAGE;
+  }
+
   patch_setuidandplatformize();
+  setuid(0);
+  setgid(0);
 
   struct stat template;
-  if (lstat("/Applications/SuccessionRestore.app/SuccessionRestore", &template) == -1) {
+  if (stat("/Applications/SuccessionRestore.app/SuccessionRestore", &template) == -1) {
     printf("THE TRUE AND NEO CHAOS!\n");
     fflush(stdout);
     return EX_NOPERM;
@@ -50,9 +59,11 @@ int main(int argc, char ** argv) {
     pid_t pid = getppid();
 
     char buffer[PATH_MAX];
+    memset(buffer, 0, sizeof(buffer));
     int ret = proc_pidpath(pid, buffer, sizeof(buffer)); 
 
     struct stat response;
+    memset(&response, 0, sizeof(response));
     stat(buffer, &response);
 
     if (ret < 1 || (template.st_dev != response.st_dev || template.st_ino != response.st_ino)) {
@@ -70,6 +81,7 @@ int main(int argc, char ** argv) {
         return EX_NOPERM;
       }
 
+      setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
       int result = execvp(argv[1], &argv[1]);
 
       return result;

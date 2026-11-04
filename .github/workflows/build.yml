@@ -1,0 +1,65 @@
+name: Build Succession iOS 7+ (.deb)
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-deb:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies (ldid, fakeroot, dpkg)
+        run: |
+          brew install ldid fakeroot dpkg
+
+      - name: Download iOS 10.3 SDK for iOS 7.0+ compatibility
+        run: |
+          mkdir -p "$HOME/theos/sdks"
+          curl -sL https://github.com/theos/sdks/archive/refs/heads/master.tar.gz | tar -xz -C "$HOME/theos/sdks" --strip-components=1 sdks-master/iPhoneOS10.3.sdk
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+
+      - name: Compile SuccessionRestore (.deb)
+        run: |
+          chmod +x ./compile
+          ./compile
+
+      - name: Verify .deb package and Mach-O headers
+        run: |
+          ls -lh com.samgisaninja.successionrestore.deb
+          dpkg-deb -I com.samgisaninja.successionrestore.deb
+          dpkg-deb -c com.samgisaninja.successionrestore.deb
+          mkdir -p /tmp/verify-deb
+          dpkg-deb -x com.samgisaninja.successionrestore.deb /tmp/verify-deb
+          file /tmp/verify-deb/Applications/SuccessionRestore.app/SuccessionRestore
+          file /tmp/verify-deb/Applications/SuccessionRestore.app/succdatroot
+          otool -arch arm64 -l /tmp/verify-deb/Applications/SuccessionRestore.app/SuccessionRestore | grep -A 4 -E "LC_VERSION_MIN_IPHONEOS|LC_BUILD_VERSION" || true
+
+      - name: Upload .deb Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: com.samgisaninja.successionrestore.deb
+          path: com.samgisaninja.successionrestore.deb
+          if-no-files-found: error
+
+      - name: Publish GitHub Release (on push to master)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.4.16-ios7
+          name: "Succession 1.4.16 (iOS 7.0 - 14.x Support)"
+          body: |
+            Automated build of **Succession** with **iOS 7 (`7.0` - `7.1.2`)** support (including iPhone 5s `arm64` and 32-bit devices).
+            - Package: `com.samgisaninja.successionrestore.deb`
+            - Required Cydia packages on iOS 7-9: `rsync`, `xpwn`
+          files: com.samgisaninja.successionrestore.deb
+          prerelease: false

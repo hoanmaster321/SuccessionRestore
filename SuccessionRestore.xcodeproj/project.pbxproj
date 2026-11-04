@@ -52,6 +52,7 @@
 		8DF38BF523904B9300C65695 /* RestoreViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 8DF38BF423904B9300C65695 /* RestoreViewController.m */; };
 		8DF4B8C523AF1AE3009EAB13 /* attach in Resources */ = {isa = PBXBuildFile; fileRef = 8DF4B8C423AF1AE3009EAB13 /* attach */; };
 		8DFBE80122442FEB00A96C2C /* SpringBoardServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8DFBE80022442FEB00A96C2C /* SpringBoardServices.framework */; };
+		8DA070032600000100000001 /* iOS7Compat.m in Sources */ = {isa = PBXBuildFile; fileRef = 8DA070022600000100000001 /* iOS7Compat.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -164,6 +165,8 @@
 		8DF4B8C423AF1AE3009EAB13 /* attach */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = attach; sourceTree = "<group>"; };
 		8DFA1566227FCC320072BB17 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		8DFBE80022442FEB00A96C2C /* SpringBoardServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = SpringBoardServices.framework; sourceTree = "<group>"; };
+		8DA070012600000100000001 /* iOS7Compat.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = iOS7Compat.h; sourceTree = "<group>"; };
+		8DA070022600000100000001 /* iOS7Compat.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = iOS7Compat.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -225,6 +228,8 @@
 				8DC809B224A42751009BA6B1 /* hdik */,
 				8D5BA27B1F7C792E00A169BF /* HomePageViewController.h */,
 				8D5BA27C1F7C792E00A169BF /* HomePageViewController.m */,
+				8DA070012600000100000001 /* iOS7Compat.h */,
+				8DA070022600000100000001 /* iOS7Compat.m */,
 				8D5BA2861F7C792E00A169BF /* Info.plist */,
 				8D5BA2831F7C792E00A169BF /* LaunchScreen.storyboard */,
 				8D5BA2871F7C792E00A169BF /* main.m */,
@@ -456,6 +461,7 @@
 				8DBB348523F722EC009C64AD /* inflate.c in Sources */,
 				8DBB349823F722EC009C64AD /* NSData+CRC32.m in Sources */,
 				8DBB349323F722EC009C64AD /* adler32.c in Sources */,
+				8DA070032600000100000001 /* iOS7Compat.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -605,7 +611,7 @@
 					"$(PROJECT_DIR)/SuccessionRestore",
 				);
 				INFOPLIST_FILE = SuccessionRestore/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 8.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 7.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
@@ -631,7 +637,7 @@
 					"$(PROJECT_DIR)/SuccessionRestore",
 				);
 				INFOPLIST_FILE = SuccessionRestore/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 8.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 7.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",

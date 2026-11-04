@@ -16,7 +16,7 @@ Once this occurs, `mobile_obliterator` (aka "Erase all Content and Settings") is
 
 ### Device Support
 - All devices running iOS 10.0 or newer are fully supported
-- Devices running iOS 8.0-9.3.5 are supported **(exclduing the iPad Pro 12.9", iPad Pro 9.7", and iPhone 6s+)** through the usage of decryption keys provided by [theiphonewiki](https://www.theiphonewiki.com/). Succession will be able to support the currently excluded devices as soon as decryption keys are posted there, and this will not require an update to Succesion to include support.
+- Devices running iOS 7.0-9.3.6 are supported **(both 32-bit and 64-bit devices, excluding the iPad Pro 12.9", iPad Pro 9.7", and iPhone 6s/6s+ on 9.x)** through the usage of RootFS decryption keys provided by [IPSW.me](https://api.ipsw.me) and [TheAppleWiki](https://theapplewiki.com/) (requires `xpwn` from the `saurik/Telesphoreo` Cydia repository).
 
 ### Installation
 If you'd like to go back to stock iOS, you can obtain Succession from:

@@ -7,6 +7,7 @@
 //
 
 #import "SettingsTableViewController.h"
+#import "iOS7Compat.h"
 
 @interface SettingsTableViewController ()
 
@@ -34,6 +35,24 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     return 10;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (kCFCoreFoundationVersionNumber >= 1140.10) {
+        return UITableViewAutomaticDimension;
+    }
+    switch ([indexPath row]) {
+        case 2:
+            return 66.0;
+        case 3:
+            return 56.0;
+        case 4:
+            return 88.0;
+        case 5:
+            return 108.0;
+        default:
+            return 48.0;
+    }
 }
 
 
@@ -131,6 +150,7 @@
 }
 
 -(void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath{
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
     switch ([indexPath row]) {
         case 0:
             [self performSegueWithIdentifier:@"goToSpecialThanksTableViewController" sender:self];
@@ -152,7 +172,9 @@
                 }
                 
             }];
+            UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
             [rsyncPathAlert addAction:continueAction];
+            [rsyncPathAlert addAction:cancelAction];
             [self presentViewController:rsyncPathAlert animated:TRUE completion:nil];
             break;
         }
@@ -173,7 +195,9 @@
                 }
                 
             }];
+            UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
             [ipswPathAlert addAction:continueAction];
+            [ipswPathAlert addAction:cancelAction];
             [self presentViewController:ipswPathAlert animated:TRUE completion:nil];
             break;
         }
@@ -183,7 +207,7 @@
                 [[NSFileManager defaultManager] removeItemAtPath:@"/var/mobile/Library/Preferences/com.samgisaninja.SuccessionRestore.plist" error:nil];
                 exit(0);
             }];
-            UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleDefault handler:nil];
+            UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
             [resetPrefsAlert addAction:confirmAction];
             [resetPrefsAlert addAction:cancelAction];
             [self presentViewController:resetPrefsAlert animated:TRUE completion:nil];
@@ -221,6 +245,17 @@
             [self presentViewController:untetherWarning animated:TRUE completion:nil];
         } else if ([[[UIDevice currentDevice] systemVersion] hasPrefix:@"8"]) {
             UIAlertController *untetherWarning = [UIAlertController alertControllerWithTitle:@"Warning" message:@"If you are using the Taig jailbreak, enabling this switch may cause a problem with Taig after restoring, preventing you from jailbreaking this device unless it is restored through iTunes. Are you sure you want to enable this?" preferredStyle:UIAlertControllerStyleAlert];
+            UIAlertAction *continueAction = [UIAlertAction actionWithTitle:@"Enable" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+                [self->_successionPrefs setObject:@(1) forKey:@"update-install"];
+                [[NSFileManager defaultManager] removeItemAtPath:@"/var/mobile/Library/Preferences/com.samgisaninja.SuccessionRestore.plist" error:nil];
+                [self->_successionPrefs writeToFile:@"/var/mobile/Library/Preferences/com.samgisaninja.SuccessionRestore.plist" atomically:TRUE];
+            }];
+            UIAlertAction *backAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
+            [untetherWarning addAction:continueAction];
+            [untetherWarning addAction:backAction];
+            [self presentViewController:untetherWarning animated:TRUE completion:nil];
+        } else if ([[[UIDevice currentDevice] systemVersion] hasPrefix:@"7"]) {
+            UIAlertController *untetherWarning = [UIAlertController alertControllerWithTitle:@"Warning" message:@"If you are using the evasi0n7 or Pangu jailbreak on iOS 7, enabling this switch may cause issues with the untether or stashed directories unless a full restore (Erase All Content and Settings) is performed. Are you sure you want to enable this?" preferredStyle:UIAlertControllerStyleAlert];
             UIAlertAction *continueAction = [UIAlertAction actionWithTitle:@"Enable" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
                 [self->_successionPrefs setObject:@(1) forKey:@"update-install"];
                 [[NSFileManager defaultManager] removeItemAtPath:@"/var/mobile/Library/Preferences/com.samgisaninja.SuccessionRestore.plist" error:nil];

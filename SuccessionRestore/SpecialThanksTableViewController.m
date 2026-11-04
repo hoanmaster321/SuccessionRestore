@@ -30,6 +30,16 @@
     return 14;
 }
 
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (kCFCoreFoundationVersionNumber >= 1140.10) {
+        return UITableViewAutomaticDimension;
+    }
+    if ([indexPath row] == 13) {
+        return 88.0;
+    }
+    return 64.0;
+}
+
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"creditsReuseIdentifier" forIndexPath:indexPath];

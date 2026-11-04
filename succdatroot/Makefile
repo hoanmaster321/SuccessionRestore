@@ -1,5 +1,5 @@
-ARCHS = armv7 arm64 arm64e
-TARGET = iphone::10.3:8.0
+ARCHS = armv7 armv7s arm64 arm64e
+TARGET = iphone::10.3:7.0
 include $(THEOS)/makefiles/common.mk
 
 TOOL_NAME = succdatroot

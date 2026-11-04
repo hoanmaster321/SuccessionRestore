@@ -8,6 +8,7 @@
 
 #import "HomePageViewController.h"
 #import "DownloadViewController.h"
+#import "iOS7Compat.h"
 #include <sys/sysctl.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <spawn.h>
@@ -74,12 +75,7 @@
         // Present an alert asking the user to consider donating.
         UIAlertController *pleaseGiveMoney = [UIAlertController alertControllerWithTitle:@"Please consider donating" message:@"This product is free, and I never intend to change that, but if it works for you, I please ask you to consider donating to my paypal to support future products." preferredStyle:UIAlertControllerStyleAlert];
         UIAlertAction *giveMeMoney = [UIAlertAction actionWithTitle:@"Donate" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-            if (@available(iOS 10.0, *)) {
-                NSDictionary *URLOptions = @{UIApplicationOpenURLOptionUniversalLinksOnly : @FALSE};
-                [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.paypal.me/SamGardner4"] options:URLOptions completionHandler:nil];
-            } else {
-                [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.paypal.me/SamGardner4"]];
-            }
+            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.paypal.me/SamGardner4"]];
             NSURLSessionDownloadTask *getMOTDTask = [[NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration] delegate:self delegateQueue:[NSOperationQueue mainQueue]] downloadTaskWithURL:[NSURL URLWithString:@"https://raw.githubusercontent.com/Samgisaninja/samgisaninja.github.io/master/motd.plist"]];
             [getMOTDTask resume];
         }];
@@ -169,7 +165,7 @@
         [_decryptDMGButton setEnabled:TRUE];
         [_infoLabel setHidden:TRUE];
         for (NSString *file in contentsOfSuccessionFolder) {
-            if (![file isEqualToString:@"encrypted.dmg"]) {
+            if (![file isEqualToString:@"encrypted.dmg"] && ![file isEqualToString:@"rfs_key.plist"]) {
                 [[NSFileManager defaultManager] removeItemAtPath:[NSString stringWithFormat:@"/var/mobile/Media/Succession/%@", file] error:nil];
             }
         }
@@ -204,35 +200,22 @@
     UIAlertController *contactSupport = [UIAlertController alertControllerWithTitle:@"Contact Samg_is_a_Ninja" message:nil preferredStyle:UIAlertControllerStyleAlert];
     UIAlertAction *twitterSupport = [UIAlertAction actionWithTitle:@"On Twitter" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         //Opens a DM to my twitter
-        if (@available(iOS 10.0, *)) {
-            NSDictionary *URLOptions = @{UIApplicationOpenURLOptionUniversalLinksOnly : @FALSE};
-            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://twitter.com/messages/compose?recipient_id=1207116990248296448"] options:URLOptions completionHandler:nil];
-        } else {
-            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://twitter.com/messages/compose?recipient_id=1207116990248296448"]];
-        }
+        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://twitter.com/messages/compose?recipient_id=1207116990248296448"]];
     }];
     UIAlertAction *redditSupport = [UIAlertAction actionWithTitle:@"On Reddit" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         //Opens a PM to my reddit
-        if (@available(iOS 10.0, *)) {
-            NSDictionary *URLOptions = @{UIApplicationOpenURLOptionUniversalLinksOnly : @FALSE};
-            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.reddit.com/message/compose/?to=samg_is_a_ninja"] options:URLOptions completionHandler:nil];
-        } else {
-            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.reddit.com/message/compose/?to=samg_is_a_ninja"]];
-        }
+        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.reddit.com/message/compose/?to=samg_is_a_ninja"]];
     }];
+    UIAlertAction *cancelSupport = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil];
     [contactSupport addAction:twitterSupport];
     [contactSupport addAction:redditSupport];
+    [contactSupport addAction:cancelSupport];
     [self presentViewController:contactSupport animated:TRUE completion:nil];
 }
 
 - (IBAction)donateButton:(id)sender {
     //Hey, someone actually decided to donate?! <3
-    if (@available(iOS 10.0, *)) {
-        NSDictionary *URLOptions = @{UIApplicationOpenURLOptionUniversalLinksOnly : @FALSE};
-        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.paypal.me/SamGardner4/"] options:URLOptions completionHandler:nil];
-    } else {
-        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.paypal.me/SamGardner4/"]];
-    }
+    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://www.paypal.me/SamGardner4/"]];
 }
 
 - (void) prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender{
@@ -338,6 +321,18 @@
             [self presentViewController:motdAlert animated:TRUE completion:nil];
         }
     }
+}
+
+- (void)URLSession:(NSURLSession *)session
+didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential * _Nullable credential))completionHandler {
+    if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] &&
+        challenge.protectionSpace.serverTrust != NULL) {
+        NSURLCredential *credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+        completionHandler(NSURLSessionAuthChallengeUseCredential, credential);
+        return;
+    }
+    completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
 }
 
 @end

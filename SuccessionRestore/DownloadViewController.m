@@ -13,6 +13,7 @@
 #import "HomePageViewController.h"
 #import <MessageUI/MFMailComposeViewController.h>
 #import "NSTask.h"
+#import "iOS7Compat.h"
 
 @interface DownloadViewController ()
 
@@ -37,7 +38,7 @@
     // This creates a font that is 'monospaced', (each character is the same width). This font is later used for the download progress label, since that label is rapidly updated, monospacing the font makes it readable.
     UIFont *systemFont = [UIFont systemFontOfSize:17];
     UIFontDescriptor *monospacedNumberFontDescriptor = [systemFont.fontDescriptor fontDescriptorByAddingAttributes: @{UIFontDescriptorFeatureSettingsAttribute: @[@{UIFontFeatureTypeIdentifierKey: @6, UIFontFeatureSelectorIdentifierKey: @0}]}];
-    _monospacedNumberSystemFont = [UIFont fontWithDescriptor:monospacedNumberFontDescriptor size:0];
+    _monospacedNumberSystemFont = [UIFont fontWithDescriptor:monospacedNumberFontDescriptor size:17.0] ?: systemFont;
     NSArray *successionFolderContents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/var/mobile/Media/Succession/" error:nil];
     // Check to see if the user has provided their own IPSW, and if so, offer to extract it instead of downloading one
     if ([[NSFileManager defaultManager] fileExistsAtPath:[_successionPrefs objectForKey:@"custom_ipsw_path"]]) {
@@ -56,10 +57,14 @@
                 });
                 if (kCFCoreFoundationVersionNumber < 1300) {
                     self->_needsDecryption = TRUE;
-                    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/bin/dmg"]) {
+                    if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/bin/dmg"] ||
+                        [[NSFileManager defaultManager] fileExistsAtPath:[[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"dmg"]]) {
                         // Before we continue, let's make sure there's a key available for the device we're looking for.
                         NSString *rootfsKey = [self getRFSKey];
                         if (![rootfsKey isEqualToString:@"Failed."]){
+                            if ([rootfsKey isEqualToString:@"Not Encrypted"]) {
+                                self->_needsDecryption = FALSE;
+                            }
                             [self postDownload];
                         }
                     } else {
@@ -132,35 +137,45 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         self.activityLabel.text = @"Preparing download...";
     });
-    // If the iOS version is older than iOS 10, the root filesystem DMG is encrypted. Let's make sure we can do that.
-    if (kCFCoreFoundationVersionNumber < 1300) {
-        _needsDecryption = TRUE;
-        if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/bin/dmg"]) {
-            // Before we continue, let's make sure there's a key available for the device we're looking for.
-            NSString *rootfsKey = [self getRFSKey];
-            if (![rootfsKey isEqualToString:@"Failed."]){
-                [self startDownload];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        // If the iOS version is older than iOS 10, the root filesystem DMG is encrypted. Let's make sure we can do that.
+        if (kCFCoreFoundationVersionNumber < 1300) {
+            self->_needsDecryption = TRUE;
+            if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/bin/dmg"] ||
+                [[NSFileManager defaultManager] fileExistsAtPath:[[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"dmg"]]) {
+                // Before we continue, let's make sure there's a key available for the device we're looking for.
+                NSString *rootfsKey = [self getRFSKey];
+                if (![rootfsKey isEqualToString:@"Failed."]){
+                    if ([rootfsKey isEqualToString:@"Not Encrypted"]) {
+                        self->_needsDecryption = FALSE;
+                    }
+                    [self startDownload];
+                }
+            } else {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    UIAlertController *needsXPwn = [UIAlertController alertControllerWithTitle:@"Succession requires additional components to be installed" message:@"Please install xpwn from the saurik/Telesphoreo repo." preferredStyle:UIAlertControllerStyleAlert];
+                    UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+                        exit(0);
+                    }];
+                    [needsXPwn addAction:exitAction];
+                    [self presentViewController:needsXPwn animated:TRUE completion:nil];
+                });
             }
         } else {
-            UIAlertController *needsXPwn = [UIAlertController alertControllerWithTitle:@"Succession requires additional components to be installed" message:@"Please install xpwn from the saurik/Telesphoreo repo." preferredStyle:UIAlertControllerStyleAlert];
-            UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-                exit(0);
-            }];
-            [needsXPwn addAction:exitAction];
-            [self presentViewController:needsXPwn animated:TRUE completion:nil];
+            self->_needsDecryption = FALSE;
+            [self startDownload];
         }
-    } else {
-        _needsDecryption = FALSE;
-        [self startDownload];
-    }
+    });
 }
 
 -(void)startDownload {
-    // Removes all files in /var/mobile/Media/Succession to delete any mess from previous uses
+    // Removes all files in /var/mobile/Media/Succession to delete any mess from previous uses (preserve cached rfs_key.plist)
     NSString *workingDir = @"/var/mobile/Media/Succession/";
     NSArray *itemsToDelete = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:workingDir error:nil];
     for (NSString *item in itemsToDelete) {
-        [[NSFileManager defaultManager] removeItemAtPath:[workingDir stringByAppendingString:item] error:nil];
+        if (![item isEqualToString:@"rfs_key.plist"]) {
+            [[NSFileManager defaultManager] removeItemAtPath:[workingDir stringByAppendingString:item] error:nil];
+        }
     }
     // Deletes partial downloads in Succession's sandbox folder
     NSString *tmpDir = NSTemporaryDirectory();
@@ -211,16 +226,25 @@
             [[self downloadProgressBar] setHidden:FALSE];
         });
         
-        // the request is made, and the string received from ipsw.me is passed to an NSData object called 'data' in the completion handler. Note that the request is created below, but it is not actually run until [getDownloadLinkTask resume];
-        NSURLSessionDataTask *getDownloadLinkTask = [[NSURLSession sharedSession] dataTaskWithURL:ipswAPIURL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSURLSessionConfiguration *apiConfig = [NSURLSessionConfiguration defaultSessionConfiguration];
+        NSURLSession *apiSession = [NSURLSession sessionWithConfiguration:apiConfig delegate:self delegateQueue:nil];
+        NSURLSessionDataTask *getDownloadLinkTask = [apiSession dataTaskWithURL:ipswAPIURL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            if (error || !data || data.length == 0) {
+                [self errorAlert:[NSString stringWithFormat:@"Could not fetch IPSW download URL for %@ (%@): %@", self->deviceModel, self->deviceBuild, error.localizedDescription ?: @"Empty response"]];
+                return;
+            }
             // so now we have a direct link to where apple is hosting the IPSW for the user's device/firmware, but it's in a rather useless NSData object, so let's convet that to an NSString
-            NSString * downloadLinkString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            NSString * downloadLinkString = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
             // update the UI, but unless the user has a really really slow device, they probably won't ever see this:
             dispatch_async(dispatch_get_main_queue(), ^{
                 [[self activityLabel] setText:[NSString stringWithFormat:@"Found IPSW at %@", downloadLinkString]];
             });
             // now we reference _downloadLink, created in DownloadViewController.h, and set it equal to the NSURL version of the string we received from ipsw.me
             self->_downloadLink = [NSURL URLWithString:downloadLinkString];
+            if (!self->_downloadLink) {
+                [self errorAlert:[NSString stringWithFormat:@"Invalid IPSW download URL returned for %@ (%@): %@", self->deviceModel, self->deviceBuild, downloadLinkString]];
+                return;
+            }
             NSURLSessionConfiguration *sessionConfig = [NSURLSessionConfiguration defaultSessionConfiguration];
             // set the timeout for the download request to 200 minutes (12000 seconds), that should be enough time, eh?
             sessionConfig.timeoutIntervalForRequest = 12000.0;
@@ -244,84 +268,25 @@
 }
 
 -(NSString *)getRFSKey{
-    // Let's fetch the rootfilesystem decryption key from theiphonewiki. TheiPhoneWiki's URLs are annoyingly machine unfriendly, formatted as https://www.theiphonewiki.com/wiki/<iOS_Codename>_<Buildnumber>_(<Machine ID>)
-    // The hard part here is the version codename. Muirey03 suggested to me that it might be possible to obtain the codename from MobileGestalt, but every time I tried to call it, Succession would crash. So, hardcoding! Hooray for lack of future-proofing! (or in this case, past-proofing? idk.)
-    NSDictionary *codenameForVersion = @{
-        @"7.0" : @"Innsbruck",
-        @"7.0.1" : @"Innsbruck",
-        @"7.0.2" : @"Innsbruck",
-        @"7.0.3" : @"InnsbruckTaos",
-        @"7.0.4" : @"InnsbruckTaos",
-        @"7.0.5" : @"InnsbruckTaos",
-        @"7.0.6" : @"InnsbruckTaos",
-        @"7.1" : @"Sochi",
-        @"7.1.1" : @"SUSochi",
-        @"7.1.2" : @"Sochi",
-        @"8.0" : @"Okemo",
-        @"8.0.1" : @"Okemo",
-        @"8.0.2" : @"Okemo",
-        @"8.1" : @"OkemoTaos",
-        @"8.1.1" : @"SUOkemoTaos",
-        @"8.1.2" : @"SUOkemoTaos",
-        @"8.1.3" : @"SUOkemoTaosTwo",
-        @"8.2" : @"OkemoZurs",
-        @"8.3" : @"Stowe",
-        @"8.4" : @"Copper",
-        @"8.4.1" : @"Donner",
-        @"9.0" : @"Monarch",
-        @"9.0.1" : @"Monarch",
-        @"9.0.2" : @"Monarch",
-        @"9.1" : @"Boulder",
-        @"9.2" : @"Castlerock",
-        @"9.2.1" : @"Dillon",
-        @"9.3" : @"Eagle",
-        @"9.3.1" : @"Eagle",
-        @"9.3.2" : @"Frisco",
-        @"9.3.3" : @"Genoa",
-        @"9.3.4" : @"Genoa",
-        @"9.3.5" : @"Genoa",
-        @"9.3.6" : @"Genoa"
-    };
-    // Hopefully that's accurate, if it isnt... welp.
-    // SO! back to what we were doing, let's figure out what codename goes with this iOS version.
-    // First let's check to make sure there isn't some edge case where I don't have the codename for the user's iOS version, getting the value for a nonexistent key results in a crash.
-    if ([[codenameForVersion allKeys] containsObject:deviceVersion]) {
-        // yay, I have the codename for the user's iOS version. Let's make it useful.
-        NSString *codename = [codenameForVersion objectForKey:deviceVersion];
-        // Now, the easiest way I could think of to obtain the decryption keys was to download the HTML page of theiphonewiki, convert it to a string, and parse, like so:
-        NSURL *keyPageURL = [NSURL URLWithString:[NSString stringWithFormat:@"https://theiphonewiki.com/wiki/%@_%@_(%@)", codename, deviceBuild, deviceModel]];
-        // Get the data of the page at keyPageURL
-        NSData *keyPageData = [NSData dataWithContentsOfURL:keyPageURL];
-        // Convert the data to a string
-        NSString *keyPageString = [NSString stringWithUTF8String:[keyPageData bytes]];
-        // Now let's check to see if theiphonewiki actually has the key we need
-        if ([keyPageString containsString:@"<code id=\"keypage-rootfs-key\">"]) {
-            // yay! it does. Lets parse now.
-            // separate the into an array to isolate the rfs key
-            NSArray *keyPageStringSeparated = [keyPageString componentsSeparatedByString:@"<code id=\"keypage-rootfs-key\">"];
-            // get all the text after "keypage-rootfs-key>"
-            NSString *theFunPartOfKeyPageString = [keyPageStringSeparated objectAtIndex:1];
-            // trim it down further
-            NSArray *theFunPartSeparated = [theFunPartOfKeyPageString componentsSeparatedByString:@"</code>"];
-            [self logToFile:[theFunPartSeparated firstObject] atLineNumber:__LINE__];
-            return [theFunPartSeparated firstObject];
-        } else {
-            // oof. key isnt available. :rip:
-            [self logToFile:[NSString stringWithFormat:@"Key for %@ %@ not available.", deviceModel, deviceBuild] atLineNumber:__LINE__];
-            UIAlertController *deviceNotSupported = [UIAlertController alertControllerWithTitle:@"Device not supported." message:@"The filesystem for your iOS version is encrypted, and a decryption key is not publicly available. If you are a researcher with a private key, please decrypt the DMG yourself using xpwn and place it in /var/mobile/Media/Succession/rfs.dmg (oh, and could you also pretty please post it to theiphonewiki)." preferredStyle:UIAlertControllerStyleAlert];
-            UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-                exit(0);
-            }];
-            [deviceNotSupported addAction:exitAction];
-            [self presentViewController:deviceNotSupported animated:TRUE completion:nil];
-            return @"Failed.";
-        }
-        
-    } else {
-        // If the iOS version isn't in the dict above, then :rip:
-        [self errorAlert:[NSString stringWithFormat:@"Couldn't get codename for your iOS %@\nPlease email me samgisaninja@unc0ver.dev or dm me on reddit u/Samg_is_a_Ninja", deviceBuild]];
-        return @"Failed.";
+    NSError *keyError = nil;
+    NSString *extractedKey = [SRNetworkHelper fetchRootFSKeyForDeviceModel:deviceModel
+                                                              buildVersion:deviceBuild
+                                                                     error:&keyError];
+    if (extractedKey.length > 0) {
+        [self logToFile:[NSString stringWithFormat:@"Obtained RootFS key for %@ (%@): %@", deviceModel, deviceBuild, extractedKey] atLineNumber:__LINE__];
+        return extractedKey;
     }
+
+    [self logToFile:[NSString stringWithFormat:@"Key for %@ %@ not available (%@).", deviceModel, deviceBuild, keyError.localizedDescription ?: @"Unknown error"] atLineNumber:__LINE__];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController *deviceNotSupported = [UIAlertController alertControllerWithTitle:@"Device not supported." message:@"The filesystem for your iOS version is encrypted, and a decryption key could not be retrieved. If you have the RootFS key, you can decrypt the DMG yourself using xpwn and place it in /var/mobile/Media/Succession/rfs.dmg." preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+            exit(0);
+        }];
+        [deviceNotSupported addAction:exitAction];
+        [self presentViewController:deviceNotSupported animated:TRUE completion:nil];
+    });
+    return @"Failed.";
 }
 
 - (void) URLSession:(NSURLSession *)session downloadTask:(nonnull NSURLSessionDownloadTask *)downloadTask didWriteData:(int64_t)bytesWritten totalBytesWritten:(int64_t)totalBytesWritten totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
@@ -334,7 +299,9 @@
         dispatch_async(dispatch_get_main_queue(), ^{
             NSMutableAttributedString *activityLabelText = [[NSMutableAttributedString alloc] initWithString:[NSString stringWithFormat:@"Downloading IPSW:\n%.2f of %.2f MB", writtenSize, totalSize]];
             // apply the font
-            [activityLabelText addAttribute:NSFontAttributeName value:self->_monospacedNumberSystemFont range:NSMakeRange(0, activityLabelText.string.length)];
+            if (self->_monospacedNumberSystemFont) {
+                [activityLabelText addAttribute:NSFontAttributeName value:self->_monospacedNumberSystemFont range:NSMakeRange(0, activityLabelText.string.length)];
+            }
             // set the label equal to my attributed string
             [self->_activityLabel setAttributedText:activityLabelText];
         });
@@ -450,7 +417,7 @@
         
     });
     [[NSFileManager defaultManager] moveItemAtPath:[_successionPrefs objectForKey:@"custom_ipsw_path"] toPath:@"/var/mobile/Media/Succession/ipsw.ipsw" error:nil];
-    OZZipFile *zip= [[OZZipFile alloc] initWithFileName:@"/var/mobile/Media/Succession/ipsw.ipsw" mode:OZZipFileModeUnzip];
+    OZZipFile *zip = [[OZZipFile alloc] initWithFileName:@"/var/mobile/Media/Succession/ipsw.ipsw" mode:OZZipFileModeUnzip legacy32BitMode:(sizeof(void *) == 4)];
     NSMutableData *buffer = [[NSMutableData alloc] initWithLength:1024];
     NSArray *zipContentList= [zip listFileInZipInfos];
     for (OZFileInZipInfo *fileInZipInfo in zipContentList) {
@@ -572,37 +539,41 @@
     [unzipIPSW locateFileInZip:largestFileName];
     [self logToFile:[NSString stringWithFormat:@"Name of largest file is %@", largestFileName] atLineNumber:__LINE__];
     
-    unsigned long long dmgLengthULL = (unsigned long long)[[namesAndSizes allKeysForObject:largestFileName] firstObject];
+    unsigned long long dmgLengthULL = [largestFileSize unsignedLongLongValue];
     float dmgLength = (float)dmgLengthULL;
     OZZipReadStream *read = [unzipIPSW readCurrentFileInZip];
     NSMutableData *data = [[NSMutableData alloc] initWithLength:32768];
     [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/Media/Succession/rfs.dmg" contents:nil attributes:nil];
+    NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:@"/var/mobile/Media/Succession/rfs.dmg"];
     float unzipProgress = 0;
+    float lastReportedProgress = -1.0f;
     dispatch_async(dispatch_get_main_queue(), ^{
         [[self unzipActivityIndicator] setHidden:TRUE];
         [[self downloadProgressBar] setHidden:FALSE];
         [[self activityLabel] setText:[NSString stringWithFormat:@"Extracting %@ from IPSW", largestFileName]];
     });
     do {
-        
-        // Reset buffer length
-        [data setLength:32768];
-        
-        // Read bytes and check for end of file
-        int bytesRead= (int)[read readDataWithBuffer:data];
-        if (bytesRead <= 0)
-            break;
-        [data setLength:bytesRead];
-        unzipProgress = unzipProgress + bytesRead;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [[self downloadProgressBar] setProgress:(unzipProgress/dmgLength)];
-        });
-        NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:@"/var/mobile/Media/Succession/rfs.dmg"];
-        [fileHandle seekToEndOfFile];
-        [fileHandle writeData:data];
-        [fileHandle closeFile];
-        [self logToFile:[NSString stringWithFormat:@"Extracting DMG, %d bytes extracted, %f of %f total", bytesRead, unzipProgress, dmgLength] atLineNumber:__LINE__];
+        @autoreleasepool {
+            // Reset buffer length
+            [data setLength:32768];
+            
+            // Read bytes and check for end of file
+            int bytesRead = (int)[read readDataWithBuffer:data];
+            if (bytesRead <= 0)
+                break;
+            [data setLength:bytesRead];
+            unzipProgress = unzipProgress + bytesRead;
+            float currentRatio = (dmgLength > 0) ? (unzipProgress / dmgLength) : 0.0f;
+            if (currentRatio - lastReportedProgress >= 0.005f || currentRatio >= 1.0f) {
+                lastReportedProgress = currentRatio;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [[self downloadProgressBar] setProgress:currentRatio];
+                });
+            }
+            [fileHandle writeData:data];
+        }
     } while (YES);
+    [fileHandle closeFile];
     [read finishedReading];
     [unzipIPSW close];
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -663,6 +634,18 @@
             [logFileHandle closeFile];
         });
     }
+}
+
+- (void)URLSession:(NSURLSession *)session
+didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential * _Nullable credential))completionHandler {
+    if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] &&
+        challenge.protectionSpace.serverTrust != NULL) {
+        NSURLCredential *credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+        completionHandler(NSURLSessionAuthChallengeUseCredential, credential);
+        return;
+    }
+    completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
 }
 
 @end

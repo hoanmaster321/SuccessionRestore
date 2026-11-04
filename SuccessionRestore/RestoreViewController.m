@@ -12,6 +12,8 @@
 #import "NSTask.h"
 #import <spawn.h>
 #include <sys/mount.h>
+#include <dlfcn.h>
+#import "iOS7Compat.h"
 
 @interface RestoreViewController ()
 
@@ -55,8 +57,8 @@
         [[self titleLabel] setText:@"Attaching..."];
         [[self subtitleLabel] setText:@"This should take less than 10 seconds"];
         [[self eraseButton] setTitle:@"Please Wait..." forState:UIControlStateNormal];
-        if (@available(iOS 13.0, *)) {
-            [[self eraseButton] setTitleColor:[UIColor labelColor] forState:UIControlStateNormal];
+        if ([[UIColor class] respondsToSelector:@selector(labelColor)]) {
+            [[self eraseButton] setTitleColor:[[UIColor class] performSelector:@selector(labelColor)] forState:UIControlStateNormal];
         } else {
             [[self eraseButton] setTitleColor:[UIColor darkTextColor] forState:UIControlStateNormal];
         }
@@ -98,9 +100,11 @@
             if (!error) {
                 NSTask *mkdirMntPt = [[NSTask alloc] init];
                 [mkdirMntPt setLaunchPath:[[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"succdatroot"]];
-                NSArray *mkdirMntPtArgs = [NSArray arrayWithObjects:@"/bin/mkdir", @"/private/var/mnt/succ", nil];
+                NSArray *mkdirMntPtArgs = [NSArray arrayWithObjects:@"/bin/mkdir", @"-p", @"/private/var/mnt/succ", nil];
                 [mkdirMntPt setArguments:mkdirMntPtArgs];
                 NSPipe *stdOutPipe = [NSPipe pipe];
+                [mkdirMntPt setStandardOutput:stdOutPipe];
+                [mkdirMntPt setStandardError:stdOutPipe];
                 NSFileHandle *stdOutFileRead = [stdOutPipe fileHandleForReading];
                 mkdirMntPt.terminationHandler = ^{
                     NSData *outData = [stdOutFileRead readDataToEndOfFile];
@@ -109,6 +113,7 @@
                 };
                 [mkdirMntPt launch];
                 [mkdirMntPt waitUntilExit];
+                [self attachDiskImage];
             } else {
                 [self errorAlert:@"Please delete the file located at /private/var/mnt/succ" atLineNumber:__LINE__];
             }
@@ -116,9 +121,11 @@
     } else {
         NSTask *mkdirMntPt = [[NSTask alloc] init];
         [mkdirMntPt setLaunchPath:[[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"succdatroot"]];
-        NSArray *mkdirMntPtArgs = [NSArray arrayWithObjects:@"/bin/mkdir", @"/private/var/mnt/succ", nil];
+        NSArray *mkdirMntPtArgs = [NSArray arrayWithObjects:@"/bin/mkdir", @"-p", @"/private/var/mnt/succ", nil];
         [mkdirMntPt setArguments:mkdirMntPtArgs];
         NSPipe *stdOutPipe = [NSPipe pipe];
+        [mkdirMntPt setStandardOutput:stdOutPipe];
+        [mkdirMntPt setStandardError:stdOutPipe];
         NSFileHandle *stdOutFileRead = [stdOutPipe fileHandleForReading];
         mkdirMntPt.terminationHandler = ^{
             NSData *outData = [stdOutFileRead readDataToEndOfFile];
@@ -127,6 +134,7 @@
         };
         [mkdirMntPt launch];
         [mkdirMntPt waitUntilExit];
+        [self attachDiskImage];
     }
 }
 
@@ -134,7 +142,9 @@
 -(void)attachDiskImage{
     [self logToFile:@"attachDiskImage called!" atLineNumber:__LINE__];
     NSArray *beforeAttachDevContents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:@"/dev/" error:nil];
-    if (sizeof(void *) != 4) {
+    // On iOS 7-9 (kCFCoreFoundationVersionNumber < 1300) and all 32-bit devices, use comex's attach utility.
+    // On iOS 7-9, decrypted RootFS DMGs are raw HFS+ partitions without an s2 slice, and bundled hdik (arm64) has minos 14.2.
+    if (sizeof(void *) != 4 && kCFCoreFoundationVersionNumber >= 1300) {
         [self logToFile:@"using hdik to attach disk image" atLineNumber:__LINE__];
         NSTask *hdikTask = [[NSTask alloc] init];
         [hdikTask setLaunchPath:[[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"succdatroot"]];
@@ -257,32 +267,40 @@
         NSString *outString = [[NSString alloc] initWithData:outData encoding:NSUTF8StringEncoding];
         [self logToFile:[NSString stringWithFormat:@"attach output is: %@", outString] atLineNumber:__LINE__];
         if ([outString containsString:@"disk"]) {
-            NSArray *outLines = [outString componentsSeparatedByString:[NSString stringWithFormat:@"\n"]];
+            NSArray *rawLines = [outString componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+            NSMutableArray *outLines = [NSMutableArray array];
+            for (NSString *rawLine in rawLines) {
+                NSString *trimmed = [rawLine stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                if (trimmed.length > 0 && [trimmed containsString:@"disk"]) {
+                    [outLines addObject:trimmed];
+                }
+            }
             [self logToFile:[NSString stringWithFormat:@"%@\n\n%lu", [outLines componentsJoinedByString:@", "], (unsigned long)[outLines count]] atLineNumber:__LINE__];
-            if ([outLines count] != 2) {
+            NSString *chosenLine = nil;
+            if ([outLines count] > 1) {
                 for (NSString *line in outLines) {
-                    [self logToFile:[NSString stringWithFormat:@"current line is %@", line]  atLineNumber:__LINE__];
-                    if ([line containsString:@"s3"]) {
-                        NSString *theDiskString;
-                        [self logToFile:[NSString stringWithFormat:@"found attached diskname %@", line] atLineNumber:__LINE__];
-                        if (![line hasPrefix:@"/dev/"]) {
-                            theDiskString = [NSMutableString stringWithString:[NSString stringWithFormat:@"/dev/%@", line]];
-                        } else {
-                            theDiskString = line;
-                        }
-                        [self logToFile:[NSString stringWithFormat:@"sending %@ to mountRestoreDisk", theDiskString] atLineNumber:__LINE__];
-                        [self prepareMountAttachedDisk:line];
+                    [self logToFile:[NSString stringWithFormat:@"current line is %@", line] atLineNumber:__LINE__];
+                    if ([line containsString:@"s3"] || [line containsString:@"s2"]) {
+                        chosenLine = line;
+                        break;
                     }
                 }
-            } else {
-                NSString *diskName = [outLines firstObject];
-                [self logToFile:[NSString stringWithFormat:@"found attached diskname %@", diskName] atLineNumber:__LINE__];
-                NSString *theDiskString;
-                if (![diskName hasPrefix:@"/dev/"]) {
-                    theDiskString = [NSMutableString stringWithString:[NSString stringWithFormat:@"/dev/%@", diskName]];
-                } else {
-                    theDiskString = diskName;
+                if (!chosenLine) {
+                    chosenLine = [outLines lastObject];
                 }
+            } else {
+                chosenLine = [outLines firstObject];
+            }
+            if (chosenLine.length > 0) {
+                // Extract the disk token if the line contains spaces/tabs
+                NSArray *tokens = [chosenLine componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+                for (NSString *tok in tokens) {
+                    if ([tok containsString:@"disk"]) {
+                        chosenLine = tok;
+                        break;
+                    }
+                }
+                NSString *theDiskString = [chosenLine hasPrefix:@"/dev/"] ? chosenLine : [NSString stringWithFormat:@"/dev/%@", chosenLine];
                 [self logToFile:[NSString stringWithFormat:@"sending %@ to mountRestoreDisk", theDiskString] atLineNumber:__LINE__];
                 [self prepareMountAttachedDisk:theDiskString];
             }
@@ -297,15 +315,17 @@
                             NSString *diskPath = [NSString stringWithFormat:@"/dev/%@", attachedDisk];
                             [self logToFile:[NSString stringWithFormat:@"found attached diskpath %@", diskPath] atLineNumber:__LINE__];
                             [self prepareMountAttachedDisk:diskPath];
+                            break;
                         }
                     }
                 }
             } else {
                 for (NSString *attachedDisk in changedDevContents) {
-                    if ([attachedDisk hasPrefix:@"disk"]) {
+                    if ([attachedDisk hasPrefix:@"disk"] && ![attachedDisk hasPrefix:@"rdisk"]) {
                         NSString *diskPath = [NSString stringWithFormat:@"/dev/%@", attachedDisk];
                         [self logToFile:[NSString stringWithFormat:@"found attached diskpath %@", diskPath] atLineNumber:__LINE__];
                         [self prepareMountAttachedDisk:diskPath];
+                        break;
                     }
                 }
             }
@@ -339,6 +359,8 @@
     NSArray *mountArgs = [NSArray arrayWithObjects:@"mount", @"-t", filesystemType, @"-o", @"ro", diskPath, @"/private/var/mnt/succ", nil];
     [mountTask setArguments:mountArgs];
     NSPipe *stdOutPipe = [NSPipe pipe];
+    [mountTask setStandardOutput:stdOutPipe];
+    [mountTask setStandardError:stdOutPipe];
     NSFileHandle *stdOutFileRead = [stdOutPipe fileHandleForReading];
     mountTask.terminationHandler = ^{
         NSData *outData = [stdOutFileRead readDataToEndOfFile];
@@ -371,12 +393,7 @@
                 NSString *sources = [NSString stringWithContentsOfFile:@"/etc/apt/sources.list.d/cydia.list" encoding:NSUTF8StringEncoding error:nil];
                 if (![sources containsString:@"bingner.com"]) {
                     UIAlertAction *addRepo = [UIAlertAction actionWithTitle:@"Add repository to cydia" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-                        if (@available(iOS 10.0, *)) {
-                            NSDictionary *URLOptions = @{UIApplicationOpenURLOptionUniversalLinksOnly : @FALSE};
-                            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://cydia.saurik.com/api/share#?source=https://repo.bingner.com/"] options:URLOptions completionHandler:nil];
-                        } else {
-                            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://cydia.saurik.com/api/share#?source=https://repo.bingner.com/"]];
-                        }
+                        [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://cydia.saurik.com/api/share#?source=https://repo.bingner.com/"]];
                         [self logToFile:@"user adding source for snappy" atLineNumber:__LINE__];
                     }];
                     [needSnappy addAction:addRepo];
@@ -421,18 +438,13 @@
             [self logToFile:@"user wants to begin restore now, checking battery level" atLineNumber:__LINE__];
             [[UIDevice currentDevice] setBatteryMonitoringEnabled:TRUE];
             if ([[UIDevice currentDevice] batteryLevel] > 0.5) {
-                if (@available(iOS 9.0, *)) {
-                    if ([[NSProcessInfo processInfo] isLowPowerModeEnabled]) {
-                        UIAlertController *disableLowPowerMode = [UIAlertController alertControllerWithTitle:@"Low Power Mode enabled" message:@"Low Power Mode causes your device to auto-lock after 30 seconds, please go to settings and turn that off." preferredStyle:UIAlertControllerStyleAlert];
-                        UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"I've turned it off, start restoring" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-                            [self beginRestore];
-                        }];
-                        [disableLowPowerMode addAction:okAction];
-                        [self presentViewController:disableLowPowerMode animated:TRUE completion:nil];
-                    } else {
-                        [self logToFile:[NSString stringWithFormat:@"battery level is %f which is greater than 50%%, ready to go", [[UIDevice currentDevice] batteryLevel]] atLineNumber:__LINE__];
+                if ([[NSProcessInfo processInfo] respondsToSelector:@selector(isLowPowerModeEnabled)] && [[NSProcessInfo processInfo] isLowPowerModeEnabled]) {
+                    UIAlertController *disableLowPowerMode = [UIAlertController alertControllerWithTitle:@"Low Power Mode enabled" message:@"Low Power Mode causes your device to auto-lock after 30 seconds, please go to settings and turn that off." preferredStyle:UIAlertControllerStyleAlert];
+                    UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"I've turned it off, start restoring" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
                         [self beginRestore];
-                    }
+                    }];
+                    [disableLowPowerMode addAction:okAction];
+                    [self presentViewController:disableLowPowerMode animated:TRUE completion:nil];
                 } else {
                     [self logToFile:[NSString stringWithFormat:@"battery level is %f which is greater than 50%%, ready to go", [[UIDevice currentDevice] batteryLevel]] atLineNumber:__LINE__];
                     [self beginRestore];
@@ -442,18 +454,13 @@
                 UIAlertController *lowBatteryWarning = [UIAlertController alertControllerWithTitle:@"Low Battery" message:@"It is recommended you have at least 50% battery charge before beginning restore" preferredStyle:UIAlertControllerStyleAlert];
                 UIAlertAction *cancelRestoreAction = [UIAlertAction actionWithTitle:@"Abort restore" style:UIAlertActionStyleDefault handler:nil];
                 UIAlertAction *startRestoreAction = [UIAlertAction actionWithTitle:@"Restore anyways" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-                    if (@available(iOS 9.0, *)) {
-                        if ([[NSProcessInfo processInfo] isLowPowerModeEnabled]) {
-                            UIAlertController *disableLowPowerMode = [UIAlertController alertControllerWithTitle:@"Low Power Mode enabled" message:@"Low Power Mode causes your device to auto-lock after 30 seconds, please go to settings and turn that off." preferredStyle:UIAlertControllerStyleAlert];
-                            UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"I've turned it off, start restoring" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-                                [self beginRestore];
-                            }];
-                            [disableLowPowerMode addAction:okAction];
-                            [self presentViewController:disableLowPowerMode animated:TRUE completion:nil];
-                        } else {
-                            [self logToFile:@"user chose to override battery warning, restoring now" atLineNumber:__LINE__];
+                    if ([[NSProcessInfo processInfo] respondsToSelector:@selector(isLowPowerModeEnabled)] && [[NSProcessInfo processInfo] isLowPowerModeEnabled]) {
+                        UIAlertController *disableLowPowerMode = [UIAlertController alertControllerWithTitle:@"Low Power Mode enabled" message:@"Low Power Mode causes your device to auto-lock after 30 seconds, please go to settings and turn that off." preferredStyle:UIAlertControllerStyleAlert];
+                        UIAlertAction *okAction = [UIAlertAction actionWithTitle:@"I've turned it off, start restoring" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
                             [self beginRestore];
-                        }
+                        }];
+                        [disableLowPowerMode addAction:okAction];
+                        [self presentViewController:disableLowPowerMode animated:TRUE completion:nil];
                     } else {
                         [self logToFile:@"user chose to override battery warning, restoring now" atLineNumber:__LINE__];
                         [self beginRestore];
@@ -592,18 +599,26 @@
         [rsyncTask setStandardError:outputPipe];
         NSFileHandle *stdoutHandle = [outputPipe fileHandleForReading];
         [stdoutHandle waitForDataInBackgroundAndNotify];
-        id observer;
-        observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSFileHandleDataAvailableNotification
-                                                                     object:stdoutHandle queue:nil
-                                                                 usingBlock:^(NSNotification *note)
+        __block id observer = [[NSNotificationCenter defaultCenter] addObserverForName:NSFileHandleDataAvailableNotification
+                                                                                object:stdoutHandle queue:nil
+                                                                            usingBlock:^(NSNotification *note)
                     {
             
             NSData *dataRead = [stdoutHandle availableData];
+            if (dataRead.length == 0) {
+                if (observer) {
+                    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+                    observer = nil;
+                }
+                return;
+            }
             NSString *stringRead = [[NSString alloc] initWithData:dataRead encoding:NSUTF8StringEncoding];
             [self logToFile:stringRead atLineNumber:__LINE__];
-            [[self titleLabel] setText:@"Restoring, please wait..."];
-            [[self subtitleLabel] setText:@"Progress bar may freeze for long periods of time, it's still working, leave it alone until your device reboots."];
-            [[self titleLabel] setHidden:FALSE];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [[self titleLabel] setText:@"Restoring, please wait..."];
+                [[self subtitleLabel] setText:@"Progress bar may freeze for long periods of time, it's still working, leave it alone until your device reboots."];
+                [[self titleLabel] setHidden:FALSE];
+            });
             if ([stringRead containsString:@"cannot delete non-empty directory"] && [stringRead containsString:@"Applications/"] && ![stringRead containsString:@"SuccessionRestore"]) {
                 [self errorAlert:@"Succession has failed due to an issue with rsync. I don't know what caused this, sorry. You can follow the discussion of this issue at https://github.com/SuccessionRestore/issues/44" atLineNumber:__LINE__];
                 [rsyncTask terminate];
@@ -611,29 +626,44 @@
             NSArray *stringWords = [stringRead componentsSeparatedByString:@" "];
             for (NSString *word in stringWords) {
                 if ([word hasPrefix:@"Applications/"] || [word hasPrefix:@"bin/"] || [word containsString:@"dev/"] || [word hasPrefix:@"Library/"] || [word containsString:@"private/"]|| [word containsString:@"sbin/"] || [word hasPrefix:@"System/"] || [word hasPrefix:@"usr/"]) {
-                    [[self progressIndicator] setHidden:TRUE];
-                    [[self restoreProgressBar] setHidden:FALSE];
-                    [[self outputLabel] setHidden:FALSE];
-                    if ([stringRead containsString:@"deleting"]) {
-                        [[self outputLabel] setText:[NSString stringWithFormat:@"Deleting from %@", word]];
-                    } else {
-                        [[self outputLabel] setText:[NSString stringWithFormat:@"Restoring %@", word]];
-                    }
+                    BOOL isDeleting = [stringRead containsString:@"deleting"];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [[self progressIndicator] setHidden:TRUE];
+                        [[self restoreProgressBar] setHidden:FALSE];
+                        [[self outputLabel] setHidden:FALSE];
+                        if (isDeleting) {
+                            [[self outputLabel] setText:[NSString stringWithFormat:@"Deleting from %@", word]];
+                        } else {
+                            [[self outputLabel] setText:[NSString stringWithFormat:@"Restoring %@", word]];
+                        }
+                    });
                 }
             }
             if ([stringRead hasPrefix:@"Applications/"]) {
-                [[self restoreProgressBar] setProgress:0];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [[self restoreProgressBar] setProgress:0];
+                });
             }
             if ([stringRead hasPrefix:@"Library/"]) {
-                [[self restoreProgressBar] setProgress:0.33];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [[self restoreProgressBar] setProgress:0.33];
+                });
             }
             if ([stringRead hasPrefix:@"System/"]) {
-                [[self restoreProgressBar] setProgress:0.67];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [[self restoreProgressBar] setProgress:0.67];
+                });
             }
             if ([stringRead hasPrefix:@"usr/"]) {
-                [[self restoreProgressBar] setProgress:0.9];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [[self restoreProgressBar] setProgress:0.9];
+                });
             }
             if ([stringRead containsString:@"speedup is"] && [stringRead containsString:@"bytes"] && [stringRead containsString:@"sent"] && [stringRead containsString:@"received"]) {
+                if (observer) {
+                    [[NSNotificationCenter defaultCenter] removeObserver:observer];
+                    observer = nil;
+                }
                 dispatch_async(dispatch_get_main_queue(), ^{
                     [self logToFile:@"restore has completed!" atLineNumber:__LINE__];
                     [[self outputLabel] setHidden:TRUE];
@@ -641,7 +671,6 @@
                     [[self progressIndicator] setHidden:TRUE];
                     [[self restoreProgressBar] setHidden:FALSE];
                     [[self restoreProgressBar] setProgress:1.0];
-                    [[NSNotificationCenter defaultCenter] removeObserver:observer];
                     if ([[self->_successionPrefs objectForKey:@"dry-run"] isEqual:@(1)]) {
                         [self logToFile:@"Test mode used, exiting..." atLineNumber:__LINE__];
                         UIAlertController *restoreCompleteController = [UIAlertController alertControllerWithTitle:@"Dry run complete!" message:@"YAY!" preferredStyle:UIAlertControllerStyleAlert];
@@ -689,9 +718,12 @@
                                 [self logToFile:@"Update install was used, rebuilding uicache" atLineNumber:__LINE__];
                                 if ([[NSFileManager defaultManager] fileExistsAtPath:@"/usr/bin/uicache"]) {
                                     NSTask *uicacheTask = [[NSTask alloc] init];
-                                    NSArray *uicacheElectraArgs = [NSArray arrayWithObjects:@"--all", nil];
                                     [uicacheTask setLaunchPath:@"/usr/bin/uicache"];
-                                    [uicacheTask setArguments:uicacheElectraArgs];
+                                    if (kCFCoreFoundationVersionNumber >= 1400) {
+                                        [uicacheTask setArguments:@[@"--all"]];
+                                    } else {
+                                        [uicacheTask setArguments:@[]];
+                                    }
                                     [uicacheTask launch];
                                     [uicacheTask waitUntilExit];
                                     [self logToFile:@"uicache complete, deleting it..." atLineNumber:__LINE__];
@@ -710,14 +742,31 @@
                             } else {
                                 extern int SBDataReset(mach_port_t, int);
                                 extern mach_port_t SBSSpringBoardServerPort(void);
-                                [self logToFile:[NSString stringWithFormat:@"That was a normal restore. go, mobile_obliteration! %u", SBSSpringBoardServerPort()] atLineNumber:__LINE__];
-                                SBDataReset(SBSSpringBoardServerPort(), 5);
+                                mach_port_t sbPort = SBSSpringBoardServerPort();
+                                [self logToFile:[NSString stringWithFormat:@"That was a normal restore. go, mobile_obliteration! %u", sbPort] atLineNumber:__LINE__];
+                                int resetRet = -1;
+                                if (sbPort != 0) {
+                                    resetRet = SBDataReset(sbPort, 5);
+                                }
+                                if (resetRet != 0) {
+                                    void *oblitHandle = dlopen("/System/Library/PrivateFrameworks/MobileObliteration.framework/MobileObliteration", RTLD_NOW);
+                                    if (oblitHandle) {
+                                        int (*Mobile_Obliterate)(CFDictionaryRef) = (int (*)(CFDictionaryRef))dlsym(oblitHandle, "Mobile_Obliterate");
+                                        if (Mobile_Obliterate) {
+                                            [self logToFile:@"Falling back to Mobile_Obliterate(NULL)" atLineNumber:__LINE__];
+                                            Mobile_Obliterate(NULL);
+                                        }
+                                    }
+                                }
                             }
                         }];
                     }
                 });
+                return;
             }
-            [stdoutHandle waitForDataInBackgroundAndNotify];
+            if (observer) {
+                [stdoutHandle waitForDataInBackgroundAndNotify];
+            }
         }];
         [self logToFile:@"Updating UI to prepare for restore" atLineNumber:__LINE__];
         [[self titleLabel] setText:@"Working, do not leave the app..."];
@@ -755,12 +804,14 @@
 
 -(void)errorAlert:(NSString *)message atLineNumber:(int)lineNum{
     [self logToFile:[NSString stringWithFormat:@"ERROR! %@", message] atLineNumber:lineNum];
-    UIAlertController *errorAlertController = [UIAlertController alertControllerWithTitle:@"Error" message:message preferredStyle:UIAlertControllerStyleAlert];
-    UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-        exit(0);
-    }];
-    [errorAlertController addAction:exitAction];
-    [self presentViewController:errorAlertController animated:TRUE completion:nil];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController *errorAlertController = [UIAlertController alertControllerWithTitle:@"Error" message:message preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertAction *exitAction = [UIAlertAction actionWithTitle:@"Exit" style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
+            exit(0);
+        }];
+        [errorAlertController addAction:exitAction];
+        [self presentViewController:errorAlertController animated:TRUE completion:nil];
+    });
 }
 
 - (void)logToFile:(NSString *)message atLineNumber:(int)lineNum {
