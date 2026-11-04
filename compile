@@ -126,9 +126,11 @@ else
     export PATH="${THEOS}/toolchain/linux/iphone/bin:${PATH}"
     CLANG="${THEOS}/toolchain/linux/iphone/bin/clang"
     LIPO="${THEOS}/toolchain/linux/iphone/bin/lipo"
-    SDK_IOS7="${THEOS}/sdks/iPhoneOS9.3.sdk"
-    if [ ! -f "$SDK_IOS7/usr/lib/system/liblaunch.tbd" ] && [ -f "${THEOS}/sdks/iPhoneOS10.3.sdk/usr/lib/system/liblaunch.tbd" ]; then
-        cp "${THEOS}/sdks/iPhoneOS10.3.sdk/usr/lib/system/liblaunch.tbd" "$SDK_IOS7/usr/lib/system/liblaunch.tbd"
+    SDK_IOS7="${THEOS}/sdks/iPhoneOS10.3.sdk"
+    if [ -d "${THEOS}/sdks/iPhoneOS9.3.sdk" ]; then
+        cp "${THEOS}/sdks/iPhoneOS9.3.sdk/usr/lib/system/libunwind.tbd" "$SDK_IOS7/usr/lib/system/libunwind.tbd"
+        cp "${THEOS}/sdks/iPhoneOS9.3.sdk/usr/lib/system/libcompiler_rt.tbd" "$SDK_IOS7/usr/lib/system/libcompiler_rt.tbd"
+        cp "${THEOS}/sdks/iPhoneOS9.3.sdk/usr/lib/libobjc.A.tbd" "$SDK_IOS7/usr/lib/libobjc.A.tbd"
     fi
     SDK_ARM64E="${THEOS}/sdks/iPhoneOS14.5.sdk"
     if [ ! -d "$SDK_ARM64E" ]; then
@@ -218,7 +220,7 @@ else
         "$CLANG" -target "${ARCH}-apple-ios${MIN_IOS}" -arch "$ARCH" -isysroot "$SDK" \
             "$OBJDIR"/*.o \
             -F./SuccessionRestore -F"$SDK/System/Library/PrivateFrameworks" \
-            -framework Foundation -framework UIKit -framework CoreGraphics -framework SpringBoardServices \
+            -framework Foundation -framework CFNetwork -framework UIKit -framework CoreGraphics -framework SpringBoardServices \
             -weak_framework WebKit -lz -o "./SuccessionRestore_${ARCH}"
 
         "$CLANG" -target "${ARCH}-apple-ios${MIN_IOS}" -arch "$ARCH" -isysroot "$SDK" \
