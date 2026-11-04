@@ -123,8 +123,8 @@ else
     # Builds 4-slice universal binary: armv7 + armv7s + arm64 (iOS 7.0+) + arm64e
     # =========================================================================
     echo "COMPILING iOS 7.0+ UNIVERSAL TARGET ON LINUX (armv7 + armv7s + arm64 + arm64e)..."
-    CLANG="${THEOS}/toolchain/linux/iphone/bin/clang"
-    LIPO="${THEOS}/toolchain/linux/iphone/bin/lipo"
+    CLANG=$(find "${THEOS}/toolchain" -name "clang" -type f | head -n 1)
+    LIPO=$(find "${THEOS}/toolchain" -name "*lipo" -type f | head -n 1)
     SDK_IOS7="${THEOS}/sdks/iPhoneOS9.3.sdk"
     SDK_ARM64E="${THEOS}/sdks/iPhoneOS14.5.sdk"
     if [ ! -d "$SDK_ARM64E" ]; then
